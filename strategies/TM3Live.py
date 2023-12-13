@@ -75,11 +75,11 @@ class TM3Live(TM3Base):
         return (df["DI_values"] < df["DI_cutoff"])
 
     def signal_entry_long(self, df: DataFrame):
-        return (df["&-trend"] >= 1)
-
+        return (df["&-trend"] >= 0.7) & (df["&s-extrema"] <= -0.3) & (df["&-s_max"] > 0.02)
 
     def signal_entry_short(self, df: DataFrame):
-        return (df["&-trend"] <= -1)
+        return (df["&-trend"] <= -0.7) & (df["&s-extrema"] >= 0.3) & (df["&-s_min"] < -0.02)
+
 
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
@@ -99,32 +99,16 @@ class TM3Live(TM3Base):
         return df
 
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
-        # logger.info(f".populate_exit_trend()  {metadata} {df.shape}")
+        df.loc[
+            (self.signal_entry_short(df) | (df["&-s_min"] < -0.01)),
+            'exit_long'] = 1
 
-    #     df.loc[
-    #         (
-    #             (self.signal_entry_short(df) | True)
-    #         ),
-    #         'exit_long'] = 1
-    #     # Uncomment to use shorts (Only used in futures/margin mode. Check the documentation for more info)
-
-    #     df.loc[
-    #         (
-    #             (self.signal_entry_long(df) | True)
-    #         ),
-    #         'exit_short'] = 1
+        df.loc[
+            (self.signal_entry_long(df) | (df["&-s_max"] > 0.01)),
+            'exit_short'] = 1
 
         return df
 
-    # def custom_stake_amount(self, pair: str, current_time: datetime, current_rate: float,
-    #                         proposed_stake: float, min_stake: Optional[float], max_stake: float,
-    #                         leverage: float, entry_tag: Optional[str], side: str,
-    #                         **kwargs) -> float:
-
-    #     dataframe, _ = self.dp.get_analyzed_dataframe(pair=pair, timeframe=self.timeframe)
-    #     current_candle = dataframe.iloc[-1].squeeze()
-
-    #     return abs(current_candle['trend_strength']) * proposed_stake
 
     def custom_exit(self, pair: str, trade: Trade, current_time: datetime, current_rate: float,
                     current_profit: float, **kwargs):
@@ -134,14 +118,8 @@ class TM3Live(TM3Base):
         is_short = trade.is_short == True
         is_long = trade.is_short == False
         is_profitable = current_profit > 0
-        is_short_signal = last_candle["&-trend"] <= 0
-        is_long_signal = last_candle["&-trend"] >= 0
-
-        if trade.is_open and is_long and is_profitable and is_short_signal:
-            return "long_opposite_signal"
-
-        if trade.is_open and is_short and is_profitable and is_long_signal:
-            return "short_opposite_signal"
+        is_short_signal = last_candle["&-trend"] <= -1
+        is_long_signal = last_candle["&-trend"] >= 1
 
         # exit on profit target & if not entry signal
         if trade.is_open and is_long and (current_profit >= self.LONG_TP.value) and not is_long_signal:
@@ -149,3 +127,4 @@ class TM3Live(TM3Base):
 
         if trade.is_open and is_short and (current_profit >= self.SHORT_TP.value) and not is_short_signal:
             return "short_profit_target_reached"
+

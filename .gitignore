@@ -1,1 +1,9 @@
-lib/__pycache__/
+__pycache__/
+models/
+data/
+artifacts/
+db/
+logs/
+
+# exceptions
+!*.gitkeep

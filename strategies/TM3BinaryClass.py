@@ -29,7 +29,7 @@ import numpy as np
 from technical.pivots_points import pivots_points
 
 import pandas as pd
-from pandas import DataFrame
+from pandas import DataFrame, Series
 from freqtrade.persistence.trade_model import Trade
 from freqtrade.strategy import IStrategy
 from freqtrade.strategy.parameters import BooleanParameter, DecimalParameter, IntParameter
@@ -40,6 +40,9 @@ import talib.abstract as ta
 from sqlalchemy import desc
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from scipy.signal import argrelextrema
+
+from technical import qtpylib
+import pandas_ta as pta
 
 logger = logging.getLogger(__name__)
 
@@ -67,14 +70,57 @@ def candle_stats(dataframe):
     dataframe['open_log'] = np.log(dataframe['open'])
     return dataframe
 
-
-
-
 def f(x):
     return x
 
+def top_percent_change(dataframe: DataFrame, length: int) -> float:
+    """
+    Percentage change of the current close from the range maximum Open price
+    :param dataframe: DataFrame The original OHLC dataframe
+    :param length: int The length to look back
+    """
+    if length == 0:
+        return (dataframe['open'] - dataframe['close']) / dataframe['close']
+    else:
+        return (dataframe['open'].rolling(length).max() - dataframe['close']) / dataframe['close']
 
-class TM3Base(IStrategy):
+
+def chaikin_mf(df, periods=20):
+    close = df['close']
+    low = df['low']
+    high = df['high']
+    volume = df['volume']
+    mfv = ((close - low) - (high - close)) / (high - low)
+    mfv = mfv.fillna(0.0)
+    mfv *= volume
+    cmf = mfv.rolling(periods).sum() / volume.rolling(periods).sum()
+    return Series(cmf, name='cmf')
+
+# VWAP bands
+
+
+def VWAPB(dataframe, window_size=20, num_of_std=1):
+    df = dataframe.copy()
+    df['vwap'] = qtpylib.rolling_vwap(df, window=window_size)
+    rolling_std = df['vwap'].rolling(window=window_size).std()
+    df['vwap_low'] = df['vwap'] - (rolling_std * num_of_std)
+    df['vwap_high'] = df['vwap'] + (rolling_std * num_of_std)
+    return df['vwap_low'], df['vwap'], df['vwap_high']
+
+
+def EWO(dataframe, sma_length=5, sma2_length=35):
+    df = dataframe.copy()
+    sma1 = ta.EMA(df, timeperiod=sma_length)
+    sma2 = ta.EMA(df, timeperiod=sma2_length)
+    smadif = (sma1 - sma2) / df['close'] * 100
+    return smadif
+
+
+def get_distance(p1, p2):
+    return abs((p1) - (p2))
+
+
+class TM3BinaryClass(IStrategy):
     """
     Example strategy showing how the user connects their own
     IFreqaiModel to the strategy. Namely, the user uses:
@@ -123,91 +169,108 @@ class TM3Base(IStrategy):
 
             return roi_table
 
-    minimal_roi = {"0": 100}
+
 
     plot_config = {
         "main_plot": {},
         "subplots": {
-            "signal": {
-                "do_predict": {
-                    "color": "#224116",
-                    "type": "bar"
-                }
+            "real": {
+            "ohlc4_log_exp_slope": {
+                "color": "#3a47fd"
             },
-            "roc_auc": {
-                "roc_auc_long_gini_12": {
-                    "color": "#35e667",
-                    "type": "line"
-                },
-                "roc_auc_short_gini_12": {
-                    "color": "#cf2a8a",
-                    "type": "line"
-                },
-                #  "roc_auc_long_gini_24": {
-                #     "color": "#35e667",
-                #     "type": "line"
-                # },
-                # "roc_auc_short_gini_24": {
-                #     "color": "#cf2a8a",
-                #     "type": "line"
-                # }
+            "L1": {
+                "color": "#616161",
+                "type": "line"
             },
-            "accuracy": {
-                "accuracy_long_6": {
-                    "color": "#35e667",
-                    "type": "line"
-                },
-                "accuracy_short_6": {
-                    "color": "#cf2a8a",
-                    "type": "line"
-                },
-                # "accuracy_long_12": {
-                #     "color": "#35e667",
-                #     "type": "line"
-                # },
-                # "accuracy_short_12": {
-                #     "color": "#cf2a8a",
-                #     "type": "line"
-                # },
-                #  "accuracy_long_24": {
-                #     "color": "#35e667",
-                #     "type": "line"
-                # },
-                # "accuracy_short_24": {
-                #     "color": "#cf2a8a",
-                #     "type": "line"
-                # }
+            "L-1": {
+                "color": "#575757",
+                "type": "line"
+            }
             },
-            "DI": {
-                "DI_values": {
-                    "color": "#3c51d7",
-                    "type": "line"
-                },
-                "DI_cutoff": {
-                    "color": "#99254a",
-                    "type": "line"
-                }
+            "trend": {
+            "strong_long": {
+                "color": "#77f879",
+                "type": "line"
+            },
+            "strong_short": {
+                "color": "#d51010",
+                "type": "line"
+            },
+            "weak_long": {
+                "color": "#1847a5",
+                "type": "line"
+            },
+            "weak_short": {
+                "color": "#9651a4",
+                "type": "line"
+            },
+            "neutral": {
+                "color": "#666666",
+                "type": "line"
+            },
+            "trend_long": {
+                "color": "#49ee5c",
+                "type": "line"
+            },
+            "trend_short": {
+                "color": "#e36cc7"
+            }
+            },
+            "extrema": {
+            "maxima": {
+                "color": "#41c319",
+                "type": "line"
+            },
+            "minima": {
+                "color": "#e11f98",
+                "type": "line"
+            }
             }
         }
-    }
+        }
 
-    process_only_new_candles = True
-    use_exit_signal = True
-    can_short = True
-
-    stoploss = -0.04
-    trailing_stop = True
-    trailing_only_offset_is_reached  = False
-    trailing_stop_positive_offset = 0
-
-
-    max_open_trades = 2
+    minimal_roi = {"360": 0}
 
     TARGET_VAR = "ohlc4_log"
     DEBUG = False
 
-    LONG_TP = DecimalParameter(0.005, 0.03, decimals=4, default=0.0236, space="sell", optimize=False)
-    SHORT_TP = DecimalParameter(0.005, 0.03, decimals=4, default=0.0162, space="sell", optimize=False)
+    process_only_new_candles = True
+    use_exit_signal = True
+    can_short = True
+    ignore_roi_if_entry_signal = True
+
+    stoploss = -0.04
+    trailing_stop = False
+    trailing_only_offset_is_reached  = False
+    trailing_stop_positive_offset = 0
+
+    # user should define the maximum startup candle count (the largest number of candles
+    # passed to any single indicator)
+    # internally freqtrade multiply it by 2, so we put here 1/2 of the max startup candle count
+    startup_candle_count: int = 100
+
+    @property
+    def protections(self):
+        return [
+            {
+                "method": "StoplossGuard",
+                "lookback_period_candles": 1,
+                "trade_limit": 1,
+                "stop_duration_candles": 24,
+                "required_profit": -0.005,
+                "only_per_pair": True,
+                "only_per_side": True
+            }
+        ]
+
+    LONG_ENTRY_SIGNAL_TRESHOLD = DecimalParameter(0.7, 0.95, decimals=2, default=0.8, space="buy", optimize=True)
+    SHORT_ENTRY_SIGNAL_TRESHOLD = DecimalParameter(0.7, 0.95, decimals=2, default=0.8, space="buy", optimize=True)
+
+    ENTRY_STRENGTH_TRESHOLD = DecimalParameter(0.4, 0.7, decimals=2, default=0.3, space="buy", optimize=True)
+
+    LONG_TP = DecimalParameter(0.01, 0.03, decimals=3, default=0.016, space="sell", optimize=True)
+    SHORT_TP = DecimalParameter(0.01, 0.03, decimals=3, default=0.016, space="sell", optimize=True)
+
 
     # user should define the maximum startup candle count (the largest number of candles
     # passed to any single indicator)
@@ -218,27 +281,29 @@ class TM3Base(IStrategy):
     def PREDICT_TARGET(self):
         return self.config["freqai"].get("label_period_candles", 6)
 
-    @property
-    def protections(self):
-        return [
-            {
-                "method": "StoplossGuard",
-                "lookback_period_candles": 6,
-                "trade_limit": 2,
-                "stop_duration_candles": 12,
-                "required_profit": 0.0,
-                "only_per_pair": True,
-                "only_per_side": True
-            }
-        ]
+    # @property
+    # def protections(self):
+    #     return [
+    #         {
+    #             "method": "StoplossGuard",
+    #             "lookback_period_candles": 6,
+    #             "trade_limit": 2,
+    #             "stop_duration_candles": 12,
+    #             "required_profit": 0.0,
+    #             "only_per_pair": True,
+    #             "only_per_side": True
+    #         }
+    #     ]
 
     def bot_start(self, **kwargs) -> None:
         print("bot_start")
 
         self.DEBUG = self.config["sagemaster"].get("debug", False)
 
+
     def new_pool(self):
         return mp.Pool(self.config["freqai"].get("data_kitchen_thread_count", 4))
+
 
     def feature_engineering_trend(self, df: DataFrame, metadata, **kwargs):
         self.log(f"ENTER .feature_engineering_trend() {metadata} {df.shape}")
@@ -285,6 +350,7 @@ class TM3Base(IStrategy):
         self.log(f"EXIT .feature_engineering_trend() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
 
         return df
+
 
     def feature_engineering_expand_basic(self, df, metadata, **kwargs):
         self.log(f"ENTER .feature_engineering_expand_basic() {metadata} {df.shape}")
@@ -396,22 +462,6 @@ class TM3Base(IStrategy):
         return df
 
 
-    def label_trend_filter(self, target: DataFrame, long_slope_tresh = 0.5, short_slope_tresh = -0.5):
-        # scale slope
-        if target['slope'].shape[0] > 0:
-            target['scaled_slope'] = StandardScaler().fit_transform(target['slope'].values.reshape(-1, 1))
-
-            # Calculate highest and lowest values
-            target['&-trend_long'] = np.where(target['scaled_slope'] > long_slope_tresh, 'trend_long', 'trend_not_long')
-            target['&-trend_short'] = np.where(target['scaled_slope'] < short_slope_tresh, 'trend_short', 'trend_not_short')
-
-            self.log(f"label_trend_filter() trend_long({long_slope_tresh}): {target['&-trend_long'].value_counts()} \
-                     & trend_short({short_slope_tresh}): {target['&-trend_short'].value_counts()} \
-                     of total {target.shape[0]} labels were set")
-
-        return target
-
-
     def set_freqai_targets(self, df: DataFrame, metadata, **kwargs):
         self.log(f"ENTER .set_freqai_targets() {metadata} {df.shape}")
         start_time = time.time()
@@ -429,15 +479,20 @@ class TM3Base(IStrategy):
         # align index
         target = target.reindex(df.index)
         # set trend target
-        df['&-trend'] = target['scaled_slope'].copy()
+        df['trend_slope'] = target['scaled_slope'].copy()
         # reset index and get back
         df = df.reset_index(drop=True)
 
-        # target: extrema and range
-        df["&s-extrema"] = 0
-        # set currently predicting values to nan to remove them later
-        df.iloc[-kernel:, df.columns.get_loc("&s-extrema")] = np.nan
+        ## Classify trend
+        slope_filter = 0.3
+        df['&-trend_long'] = np.where(df['trend_slope'] > slope_filter, 'trend_long', 'trend_not_long')
+        df['&-trend_short'] = np.where(df['trend_slope'] < -slope_filter, 'trend_short', 'trend_not_short')
 
+        print(df['&-trend_long'].value_counts())
+        print(df['&-trend_short'].value_counts())
+
+        # target: extrema
+        df['extrema'] = 0
         min_peaks = argrelextrema(
             df["low_log"].values, np.less,
             order=kernel
@@ -446,27 +501,36 @@ class TM3Base(IStrategy):
             df["high_log"].values, np.greater,
             order=kernel
         )
+
+        print(f"min_peaks: {len(min_peaks[0])}, max_peaks: {len(max_peaks[0])}")
+
         for mp in min_peaks[0]:
-            df.at[mp, "&s-extrema"] = -1
+            df.at[mp, "extrema"] = -1
         for mp in max_peaks[0]:
-            df.at[mp, "&s-extrema"] = 1
-        df["minima-exit"] = np.where(
-            df["&s-extrema"] == -1, 1, 0)
-        df["maxima-exit"] = np.where(df["&s-extrema"] == 1, 1, 0)
-        df['&s-extrema'] = df['&s-extrema'].rolling(
+            df.at[mp, "extrema"] = 1
+
+        df['extrema'] = df['extrema'].rolling(
             window=5, win_type='gaussian', center=True).mean(std=0.5)
 
-        # predict the expected range
-        df['&-s_max'] = df[self.TARGET_VAR].shift(-kernel).rolling(
-            kernel).max()/df[self.TARGET_VAR] - 1
-        df['&-s_min'] = df[self.TARGET_VAR].shift(-kernel).rolling(
-            kernel).min()/df[self.TARGET_VAR] - 1
+        # print(df['extrema'].value_counts())
+
+        # Classify extrema
+        df['&-extrema_maxima'] = np.where(df['extrema'] > 0, 'maxima', 'not_maxima')
+        df['&-extrema_minima'] = np.where(df['extrema'] < 0, 'minima', 'not_minima')
+
+        print(df['&-extrema_maxima'].value_counts())
+        print(df['&-extrema_minima'].value_counts())
 
         # remove duplicated columns
         df = df.loc[:, ~df.columns.duplicated(keep='first')]
-        # cleanup after ourselves
-        # df.drop(columns=['open_log', 'low_log', 'high_log', 'close_log', 'hl2_log', 'hlc3_log', 'ohlc4_log', '%-extrema', '%-trend_slope'], inplace=True)
 
+        # remove last kernel rows
+        df.iloc[-kernel:, df.columns.get_loc("&-extrema_maxima")] = np.nan
+        df.iloc[-kernel:, df.columns.get_loc("&-extrema_minima")] = np.nan
+        df.iloc[-kernel:, df.columns.get_loc("&-trend_long")] = np.nan
+        df.iloc[-kernel:, df.columns.get_loc("&-trend_short")] = np.nan
+
+        df.drop(columns=['open_log', 'low_log', 'high_log', 'close_log', 'hl2_log', 'hlc3_log', 'ohlc4_log', 'extrema', 'trend_slope'], inplace=True)
         self.log(f"EXIT .set_freqai_targets() {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
 
         return df
@@ -488,16 +552,13 @@ class TM3Base(IStrategy):
 
         return df
 
-    def add_rolling_rmse(self, df: DataFrame) -> DataFrame:
-        pass
-
     def populate_indicators(self, df: DataFrame, metadata: dict) -> DataFrame:
         self.log(f"ENTER .populate_indicators() {metadata} {df.shape}")
         start_time = time.time()
 
-        df = candle_stats(df)
-
         df = self.freqai.start(df, metadata, self)
+
+        df = candle_stats(df)
 
         # trend strength indicator
         # df['trend_strength'] = df['trend_long'] - df['trend_short']
@@ -526,80 +587,137 @@ class TM3Base(IStrategy):
         self.log(f"EXIT populate_indicators {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
         return df
 
+    def protection_di(self, df: DataFrame):
+        return (df["DI_values"] < df["DI_cutoff"])
 
-    def confirm_trade_entry(self, pair: str, order_type: str, amount: float, rate: float,
-                            time_in_force: str, current_time: datetime, entry_tag: Optional[str],
-                            side: str, **kwargs) -> bool:
+    def signal_entry_long(self, df: DataFrame):
+        return (df["trend_long"] >= 0.7) & (df["minima"] >= 0.7)
 
-        if self.config.get('runmode') in (RunMode.DRY_RUN, RunMode.LIVE):
-            self.log(f"ENTER confirm_trade_entry() {pair}, {current_time}, {rate}, {entry_tag}, {side}")
+    def signal_entry_short(self, df: DataFrame):
+        return (df["trend_long"] >= 0.7) & (df["maxima"] >= 0.7)
 
-        # if not enabled, exit with True
-        if (not self.config['sagemaster'].get('enabled', False)):
-            return True
 
-        # get client and load params
-        sgm = SageMasterClient(self.config['sagemaster']['webhook_api_key'], self.config['sagemaster']['webhook_url'], self.config['sagemaster']['trader_nickname'])
+    def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
 
-        [market, symbol_base, symbol_quote] = helpers.extract_currencies(pair)
-        deal_type = 'buy' if side == 'long' else 'sell'
-        tp_tip = round(self.LONG_TP.value * 100, 4) if side == 'long' else round(self.SHORT_TP.value * 100, 4)
-        sl_tip = round(self.stoploss * 100, 4)
+        df.loc[
+            (
+                self.signal_entry_long(df)
+            ),
+            'enter_long'] = 1
 
-        # generate trade_id, which is +1 to last trade in db
-        trade_id = "1"
-        trade = Trade.get_trades(None).order_by(desc(Trade.open_date)).first()
-        if (trade):
-            trade_id = str(trade.id + 1)
+        df.loc[
+            (
+                self.signal_entry_short(df)
+            ),
+            'enter_short'] = 1
 
-        # convert trade_id to uuid
-        trade_id = helpers.get_uuid_from_key(str(trade_id))
+        return df
 
-        sgm.open_deal(
-            market=market,
-            symbol_base=symbol_base,
-            symbol_quote=symbol_quote,
-            deal_type=deal_type,
-            buy_price=rate,
-            tp_tip=tp_tip,
-            sl_tip=sl_tip,
-            trade_id=trade_id
-        )
+    def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
+        df.loc[
+            self.signal_entry_short(df),
+            'exit_long'] = 1
 
-        return True
+        df.loc[
+            self.signal_entry_long(df),
+            'exit_short'] = 1
 
-    def confirm_trade_exit(self, pair: str, trade: Trade, order_type: str, amount: float,
-                           rate: float, time_in_force: str, exit_reason: str,
-                           current_time: datetime, **kwargs) -> bool:
+        return df
 
-        if self.config.get('runmode') in (RunMode.DRY_RUN, RunMode.LIVE):
-            self.log(f"ENTER confirm_trade_entry() {pair}, {current_time}, {rate}")
 
-        # if not enabled, exit with True
-        if (not self.config['sagemaster'].get('enabled', False)):
-            return True
+    # def custom_exit(self, pair: str, trade: Trade, current_time: datetime, current_rate: float,
+    #                 current_profit: float, **kwargs):
+    #     df, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+    #     last_candle = df.iloc[-1].squeeze()
+    #     trade_duration = (current_time - trade.open_date_utc).seconds / 60
+    #     is_short = trade.is_short == True
+    #     is_long = trade.is_short == False
+    #     is_profitable = current_profit > 0
+    #     is_short_signal = last_candle["&-trend"] <= -1
+    #     is_long_signal = last_candle["&-trend"] >= 1
 
-        sgm = SageMasterClient(self.config['sagemaster']['webhook_api_key'], self.config['sagemaster']['webhook_url'], self.config['sagemaster']['trader_nickname'])
+    #     # exit on profit target & if not entry signal
+    #     if trade.is_open and is_long and (current_profit >= self.LONG_TP.value) and not is_long_signal:
+    #         return "long_profit_target_reached"
 
-        [market, symbol_base, symbol_quote] = helpers.extract_currencies(pair)
-        tp_tip = round(self.LONG_TP.value * 100, 4) if trade.is_short == False else round(self.SHORT_TP.value * 100, 4)
-        sl_tip = round(self.stoploss * 100, 4)
-        profit_ratio = trade.calc_profit_ratio(rate)
-        deal_type = 'buy' if trade.is_short == False else 'sell'
-        trade_id = helpers.get_uuid_from_key(str(trade.id))
-        allow_stoploss = self.config['sagemaster'].get('allow_stoploss', False)
+    #     if trade.is_open and is_short and (current_profit >= self.SHORT_TP.value) and not is_short_signal:
+    #         return "short_profit_target_reached"
 
-        sgm.close_deal(
-            market=market,
-            symbol_base=symbol_base,
-            symbol_quote=symbol_quote,
-            deal_type=deal_type,
-            buy_price=rate,
-            tp_tip=tp_tip,
-            sl_tip=sl_tip,
-            trade_id=trade_id,
-            profit_ratio=profit_ratio,
-            allow_stoploss=allow_stoploss
-        )
 
-        return True
+
+    # def confirm_trade_entry(self, pair: str, order_type: str, amount: float, rate: float,
+    #                         time_in_force: str, current_time: datetime, entry_tag: Optional[str],
+    #                         side: str, **kwargs) -> bool:
+
+    #     if self.config.get('runmode') in (RunMode.DRY_RUN, RunMode.LIVE):
+    #         self.log(f"ENTER confirm_trade_entry() {pair}, {current_time}, {rate}, {entry_tag}, {side}")
+
+    #     # if not enabled, exit with True
+    #     if (not self.config['sagemaster'].get('enabled', False)):
+    #         return True
+
+    #     # get client and load params
+    #     sgm = SageMasterClient(self.config['sagemaster']['webhook_api_key'], self.config['sagemaster']['webhook_url'], self.config['sagemaster']['trader_nickname'])
+
+    #     [market, symbol_base, symbol_quote] = helpers.extract_currencies(pair)
+    #     deal_type = 'buy' if side == 'long' else 'sell'
+    #     tp_tip = round(self.LONG_TP.value * 100, 4) if side == 'long' else round(self.SHORT_TP.value * 100, 4)
+    #     sl_tip = round(self.stoploss * 100, 4)
+
+    #     # generate trade_id, which is +1 to last trade in db
+    #     trade_id = "1"
+    #     trade = Trade.get_trades(None).order_by(desc(Trade.open_date)).first()
+    #     if (trade):
+    #         trade_id = str(trade.id + 1)
+
+    #     # convert trade_id to uuid
+    #     trade_id = helpers.get_uuid_from_key(str(trade_id))
+
+    #     sgm.open_deal(
+    #         market=market,
+    #         symbol_base=symbol_base,
+    #         symbol_quote=symbol_quote,
+    #         deal_type=deal_type,
+    #         buy_price=rate,
+    #         tp_tip=tp_tip,
+    #         sl_tip=sl_tip,
+    #         trade_id=trade_id
+    #     )
+
+    #     return True
+
+    # def confirm_trade_exit(self, pair: str, trade: Trade, order_type: str, amount: float,
+    #                        rate: float, time_in_force: str, exit_reason: str,
+    #                        current_time: datetime, **kwargs) -> bool:
+
+    #     if self.config.get('runmode') in (RunMode.DRY_RUN, RunMode.LIVE):
+    #         self.log(f"ENTER confirm_trade_entry() {pair}, {current_time}, {rate}")
+
+    #     # if not enabled, exit with True
+    #     if (not self.config['sagemaster'].get('enabled', False)):
+    #         return True
+
+    #     sgm = SageMasterClient(self.config['sagemaster']['webhook_api_key'], self.config['sagemaster']['webhook_url'], self.config['sagemaster']['trader_nickname'])
+
+    #     [market, symbol_base, symbol_quote] = helpers.extract_currencies(pair)
+    #     tp_tip = round(self.LONG_TP.value * 100, 4) if trade.is_short == False else round(self.SHORT_TP.value * 100, 4)
+    #     sl_tip = round(self.stoploss * 100, 4)
+    #     profit_ratio = trade.calc_profit_ratio(rate)
+    #     deal_type = 'buy' if trade.is_short == False else 'sell'
+    #     trade_id = helpers.get_uuid_from_key(str(trade.id))
+    #     allow_stoploss = self.config['sagemaster'].get('allow_stoploss', False)
+
+    #     sgm.close_deal(
+    #         market=market,
+    #         symbol_base=symbol_base,
+    #         symbol_quote=symbol_quote,
+    #         deal_type=deal_type,
+    #         buy_price=rate,
+    #         tp_tip=tp_tip,
+    #         sl_tip=sl_tip,
+    #         trade_id=trade_id,
+    #         profit_ratio=profit_ratio,
+    #         allow_stoploss=allow_stoploss
+    #     )
+
+    #     return True

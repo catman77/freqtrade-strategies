@@ -74,7 +74,7 @@ def f(x):
     return x
 
 
-class TM3Base(IStrategy):
+class TM3MultiClass(IStrategy):
     """
     Example strategy showing how the user connects their own
     IFreqaiModel to the strategy. Namely, the user uses:
@@ -123,7 +123,7 @@ class TM3Base(IStrategy):
 
             return roi_table
 
-    minimal_roi = {"0": 100}
+
 
     plot_config = {
         "main_plot": {},
@@ -191,23 +191,48 @@ class TM3Base(IStrategy):
         }
     }
 
-    process_only_new_candles = True
-    use_exit_signal = True
-    can_short = True
-
-    stoploss = -0.04
-    trailing_stop = True
-    trailing_only_offset_is_reached  = False
-    trailing_stop_positive_offset = 0
-
-
-    max_open_trades = 2
+    minimal_roi = {"360": 0}
 
     TARGET_VAR = "ohlc4_log"
     DEBUG = False
 
-    LONG_TP = DecimalParameter(0.005, 0.03, decimals=4, default=0.0236, space="sell", optimize=False)
-    SHORT_TP = DecimalParameter(0.005, 0.03, decimals=4, default=0.0162, space="sell", optimize=False)
+    process_only_new_candles = True
+    use_exit_signal = True
+    can_short = True
+    ignore_roi_if_entry_signal = True
+
+    stoploss = -0.04
+    trailing_stop = False
+    trailing_only_offset_is_reached  = False
+    trailing_stop_positive_offset = 0
+
+    # user should define the maximum startup candle count (the largest number of candles
+    # passed to any single indicator)
+    # internally freqtrade multiply it by 2, so we put here 1/2 of the max startup candle count
+    startup_candle_count: int = 100
+
+    @property
+    def protections(self):
+        return [
+            {
+                "method": "StoplossGuard",
+                "lookback_period_candles": 1,
+                "trade_limit": 1,
+                "stop_duration_candles": 24,
+                "required_profit": -0.005,
+                "only_per_pair": True,
+                "only_per_side": True
+            }
+        ]
+
+    LONG_ENTRY_SIGNAL_TRESHOLD = DecimalParameter(0.7, 0.95, decimals=2, default=0.8, space="buy", optimize=True)
+    SHORT_ENTRY_SIGNAL_TRESHOLD = DecimalParameter(0.7, 0.95, decimals=2, default=0.8, space="buy", optimize=True)
+
+    ENTRY_STRENGTH_TRESHOLD = DecimalParameter(0.4, 0.7, decimals=2, default=0.3, space="buy", optimize=True)
+
+    LONG_TP = DecimalParameter(0.01, 0.03, decimals=3, default=0.016, space="sell", optimize=True)
+    SHORT_TP = DecimalParameter(0.01, 0.03, decimals=3, default=0.016, space="sell", optimize=True)
+
 
     # user should define the maximum startup candle count (the largest number of candles
     # passed to any single indicator)
@@ -429,15 +454,24 @@ class TM3Base(IStrategy):
         # align index
         target = target.reindex(df.index)
         # set trend target
-        df['&-trend'] = target['scaled_slope'].copy()
+        df['%-trend_slope'] = target['scaled_slope'].copy()
         # reset index and get back
         df = df.reset_index(drop=True)
 
-        # target: extrema and range
-        df["&s-extrema"] = 0
-        # set currently predicting values to nan to remove them later
-        df.iloc[-kernel:, df.columns.get_loc("&s-extrema")] = np.nan
+        ## Classify trend
+        conditions = [
+            (df['%-trend_slope'] >= 0.7),
+            (df['%-trend_slope'] <= -0.7),
+            (df['%-trend_slope'] > 0) & (df['%-trend_slope'] < 0.7),
+            (df['%-trend_slope'] < 0) & (df['%-trend_slope'] > -0.7)
+        ]
+        choices = ['strong_long', 'strong_short', 'weak_long', 'weak_short']
+        df['&-trend'] = np.select(conditions, choices, default=None)
 
+        print(df['&-trend'].value_counts())
+
+        # target: extrema
+        df['%-extrema'] = 0
         min_peaks = argrelextrema(
             df["low_log"].values, np.less,
             order=kernel
@@ -446,26 +480,35 @@ class TM3Base(IStrategy):
             df["high_log"].values, np.greater,
             order=kernel
         )
-        for mp in min_peaks[0]:
-            df.at[mp, "&s-extrema"] = -1
-        for mp in max_peaks[0]:
-            df.at[mp, "&s-extrema"] = 1
-        df["minima-exit"] = np.where(
-            df["&s-extrema"] == -1, 1, 0)
-        df["maxima-exit"] = np.where(df["&s-extrema"] == 1, 1, 0)
-        df['&s-extrema'] = df['&s-extrema'].rolling(
-            window=5, win_type='gaussian', center=True).mean(std=0.5)
 
-        # predict the expected range
-        df['&-s_max'] = df[self.TARGET_VAR].shift(-kernel).rolling(
-            kernel).max()/df[self.TARGET_VAR] - 1
-        df['&-s_min'] = df[self.TARGET_VAR].shift(-kernel).rolling(
-            kernel).min()/df[self.TARGET_VAR] - 1
+        print(f"min_peaks: {len(min_peaks[0])}, max_peaks: {len(max_peaks[0])}")
+
+        for mp in min_peaks[0]:
+            df.at[mp, "%-extrema"] = -1
+        for mp in max_peaks[0]:
+            df.at[mp, "%-extrema"] = 1
+
+        df['%-extrema'] = df['%-extrema'].rolling(
+            window=3, win_type='gaussian', center=True).mean(std=0.5)
+
+        # print(df['%-extrema'].value_counts())
+
+        # Classify extrema
+        extrema_conditions = [
+            (df['%-extrema'] > 0),
+            (df['%-extrema'] < 0)
+        ]
+        extrema_choices = ['maxima', 'minima']
+        df['&-extrema'] = np.select(extrema_conditions, extrema_choices, default='no_extrema')
+
+        print(df['&-extrema'].value_counts())
 
         # remove duplicated columns
         df = df.loc[:, ~df.columns.duplicated(keep='first')]
+
         # cleanup after ourselves
-        # df.drop(columns=['open_log', 'low_log', 'high_log', 'close_log', 'hl2_log', 'hlc3_log', 'ohlc4_log', '%-extrema', '%-trend_slope'], inplace=True)
+        df.drop(columns=['open_log', 'low_log', 'high_log', 'close_log', 'hl2_log', 'hlc3_log', 'ohlc4_log', '%-extrema', '%-trend_slope'], inplace=True)
+
 
         self.log(f"EXIT .set_freqai_targets() {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
 
@@ -488,16 +531,13 @@ class TM3Base(IStrategy):
 
         return df
 
-    def add_rolling_rmse(self, df: DataFrame) -> DataFrame:
-        pass
-
     def populate_indicators(self, df: DataFrame, metadata: dict) -> DataFrame:
         self.log(f"ENTER .populate_indicators() {metadata} {df.shape}")
         start_time = time.time()
 
-        df = candle_stats(df)
-
         df = self.freqai.start(df, metadata, self)
+
+        df = candle_stats(df)
 
         # trend strength indicator
         # df['trend_strength'] = df['trend_long'] - df['trend_short']
@@ -603,3 +643,60 @@ class TM3Base(IStrategy):
         )
 
         return True
+
+    def protection_di(self, df: DataFrame):
+        return (df["DI_values"] < df["DI_cutoff"])
+
+    def signal_entry_long(self, df: DataFrame):
+        return (df["strong_long"] >= 0.7) & (df["minima"] >= 0.7)
+
+    def signal_entry_short(self, df: DataFrame):
+        return (df["strong_short"] >= 0.7) & (df["maxima"] >= 0.7)
+
+
+    def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
+
+        df.loc[
+            (
+                self.signal_entry_long(df)
+            ),
+            'enter_long'] = 1
+
+        df.loc[
+            (
+                self.signal_entry_short(df)
+            ),
+            'enter_short'] = 1
+
+        return df
+
+    def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
+        df.loc[
+            self.signal_entry_short(df),
+            'exit_long'] = 1
+
+        df.loc[
+            self.signal_entry_long(df),
+            'exit_short'] = 1
+
+        return df
+
+
+    # def custom_exit(self, pair: str, trade: Trade, current_time: datetime, current_rate: float,
+    #                 current_profit: float, **kwargs):
+    #     df, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+    #     last_candle = df.iloc[-1].squeeze()
+    #     trade_duration = (current_time - trade.open_date_utc).seconds / 60
+    #     is_short = trade.is_short == True
+    #     is_long = trade.is_short == False
+    #     is_profitable = current_profit > 0
+    #     is_short_signal = last_candle["&-trend"] <= -1
+    #     is_long_signal = last_candle["&-trend"] >= 1
+
+    #     # exit on profit target & if not entry signal
+    #     if trade.is_open and is_long and (current_profit >= self.LONG_TP.value) and not is_long_signal:
+    #         return "long_profit_target_reached"
+
+    #     if trade.is_open and is_short and (current_profit >= self.SHORT_TP.value) and not is_short_signal:
+    #         return "short_profit_target_reached"
+
