@@ -3,13 +3,13 @@
         "TM3BinaryClass.base.json"
     ],
 
-    "timeframe": "1h",
+    "timeframe": "30m",
     "freqai": {
-        "train_period_days": 90,
+        "train_period_days": 50,
         "label_period_candles": 6,
-        "identifier": "TM3BC_1320",
+        "identifier": "TM3BC_1340",
         "feature_parameters" : {
-            "target_slope_filter": 0.3,
+            "target_slope_filter": 0.1,
 
             "include_timeframes": [
                 "4h", "1d"
