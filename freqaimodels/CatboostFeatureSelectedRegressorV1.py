@@ -7,7 +7,7 @@ from pathlib import Path
 import time
 from typing import Any, Dict
 from io import StringIO
-from neptune.types import File
+
 
 from catboost import CatBoostRegressor, EFeaturesSelectionAlgorithm, EShapCalcType, Pool
 
@@ -23,8 +23,6 @@ from datasieve.transforms import SKLearnWrapper, DissimilarityIndex
 from datasieve.pipeline import Pipeline
 from sklearn.preprocessing import QuantileTransformer, RobustScaler, StandardScaler
 import datasieve.transforms as ds
-import neptune
-from neptune.utils import stringify_unsupported
 from freqtrade.freqai.base_models.FreqaiMultiOutputRegressor import FreqaiMultiOutputRegressor
 
 
@@ -53,17 +51,6 @@ class CatboostFeatureSelectedRegressorV1(BaseRegressionModel):
     @property
     def AUTODETECT_NUM_FEATURES_TO_SELECT(self):
         return self.config["sagemaster"].get("CATBOOST_AUTODETECT_NUM_FEATURES_TO_SELECT", False)
-
-
-    def neptune_init_run(self):
-        run = neptune.init_run(
-            project='roma/TrendMaster',
-            api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJiZGUxMjJkOS1iMzg1LTQwMGQtYTQwZC1iZWJiZTA0NzI2YjIifQ==",
-            # capture_hardware_metrics=True,
-            # capture_stderr=True,
-            # capture_stdout=True,
-        )
-        return run
 
     def fit(self, data_dictionary: Dict, dk: FreqaiDataKitchen, **kwargs) -> Any:
         """
@@ -133,30 +120,8 @@ class CatboostFeatureSelectedRegressorV1(BaseRegressionModel):
 
         return multi_model
 
-    def neptune_model_fit(self, run: neptune.init_run, model: CatBoostRegressor, plot_file: str):
-        run["training/plot"].upload(plot_file)
-
-        run["training/best_score"] = stringify_unsupported(model.get_best_score())
-        run["training/best_iteration"] = stringify_unsupported(model.get_best_iteration())
-
-        # upload the model
-        # model.save_model("model.cbm")
-        # run["model/binary"].upload("model.cbm")
-
-        run["model/attributes/tree_count"] = model.tree_count_
-        run["model/attributes/feature_importances"] = dict(
-            zip([name.replace('/', '') for name in model.feature_names_], model.get_feature_importance())
-        )
-        # run["model/attributes/probability_threshold"] = model.get_probability_threshold()
-
-        # the rest attributes
-        run["model/parameters"] = stringify_unsupported(model.get_all_params())
-
-        run.stop()
-
 
     def feature_select(self, data_dictionary):
-        run = self.neptune_init_run()
 
         # transform and prepare data
         x_train = data_dictionary["train_features"].copy().rename(columns=lambda x: x.replace('-', ':'))
@@ -224,7 +189,7 @@ class CatboostFeatureSelectedRegressorV1(BaseRegressionModel):
             # run["training/loss_graph"].upload(fig)
             csv_buffer = StringIO()
             loss_graph.to_csv(csv_buffer, index=False)
-            run["training/loss_over_removed_features"].upload(File.from_stream(csv_buffer, extension="csv"))
+            # run["training/loss_over_removed_features"].upload(File.from_stream(csv_buffer, extension="csv"))
 
             # run["training/loss_values"] = stringify_unsupported(best_f['loss_graph']['loss_values'])
             # run["training/removed_features_count"] = stringify_unsupported(best_f['loss_graph']['removed_features_count'])
@@ -238,7 +203,7 @@ class CatboostFeatureSelectedRegressorV1(BaseRegressionModel):
         with open(f'user_data/artifacts/{str(self.config["freqai"].get("identifier"))}_best_features_{datetime.now()}.json', 'w') as f:
             json.dump(best_f, f)
 
-        run.stop()
+        # run.stop()
 
         new_best_features = [x.replace(':', '-') for x in best_f['selected_features_names']]
         return new_best_features
