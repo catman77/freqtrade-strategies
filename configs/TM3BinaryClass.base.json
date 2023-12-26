@@ -126,7 +126,9 @@
     "force_entry_enable": true,
     "initial_state": "running",
     "internals": {
-        "process_throttle_secs": 5
+        "process_throttle_secs": 15,
+        "sd_notify": true,
+        "heartbeat_interval": 60
     },
     "api_server": {
         "enabled": true,
@@ -143,6 +145,7 @@
         "enabled": false,
         "token": "6003552464:AAHVHcUwAxo3Yy-OAIHLi4LayPzhsWTPa60",
         "chat_id": "47319110",
+        "allow_custom_messages": true,
         "notification_settings": {
             "status": "silent",
             "warning": "on",
@@ -165,8 +168,8 @@
             "exit_fill": "off",
             "protection_trigger": "on",
             "protection_trigger_global": "on",
-            "strategy_msg": "off",
-            "show_candle": "off"
+            "strategy_msg": "silent",
+            "show_candle": "ohlc"
         },
         "reload": true,
         "balance_dust_level": 0.01

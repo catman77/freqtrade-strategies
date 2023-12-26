@@ -1,0 +1,38 @@
+{
+    "max_open_trades": 2,
+    "add_config_files": [
+        "TM3BinaryClass.base.json"
+    ],
+    "exchange": {
+        "pair_whitelist": [
+            "BTC/USDT:USDT",
+            "ADA/USDT:USDT"
+        ]
+    },
+
+    "timeframe": "15m",
+    "freqai": {
+        "train_period_days": 30,
+        "label_period_candles": 6,
+        "identifier": "TM3BCLive_1332",
+        "feature_parameters" : {
+            "target_slope_filter": 0.1,
+
+            "include_timeframes": [
+                "1h", "4h", "12h"
+            ]
+        },
+        "data_split_parameters" : {
+            "test_size": 0.1
+        }
+    },
+    "internals": {
+        "process_throttle_secs": 10,
+        "sd_notify": true
+    },
+    "telegram": {
+        "enabled": true,
+        "token": "1616571634:AAE9nkbKBm9wCJ4THqiXwadW2XstzyU5eDw",
+        "chat_id": "47319110"
+    }
+}

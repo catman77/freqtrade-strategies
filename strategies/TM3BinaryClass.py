@@ -229,7 +229,7 @@ class TM3BinaryClass(IStrategy):
         }
         }
 
-    minimal_roi = {"360": 0}
+    minimal_roi = {"0": 0.07}
 
     TARGET_VAR = "ohlc4_log"
     DEBUG = False
@@ -239,7 +239,7 @@ class TM3BinaryClass(IStrategy):
     can_short = True
     ignore_roi_if_entry_signal = True
 
-    stoploss = -0.04
+    stoploss = -0.016
     trailing_stop = False
     trailing_only_offset_is_reached  = False
     trailing_stop_positive_offset = 0
@@ -249,19 +249,19 @@ class TM3BinaryClass(IStrategy):
     # internally freqtrade multiply it by 2, so we put here 1/2 of the max startup candle count
     startup_candle_count: int = 100
 
-    @property
-    def protections(self):
-        return [
-            {
-                "method": "StoplossGuard",
-                "lookback_period_candles": 1,
-                "trade_limit": 1,
-                "stop_duration_candles": 24,
-                "required_profit": -0.005,
-                "only_per_pair": True,
-                "only_per_side": True
-            }
-        ]
+    # @property
+    # def protections(self):
+    #     return [
+    #         {
+    #             "method": "StoplossGuard",
+    #             "lookback_period_candles": 1,
+    #             "trade_limit": 1,
+    #             "stop_duration_candles": 24,
+    #             "required_profit": -0.005,
+    #             "only_per_pair": True,
+    #             "only_per_side": True
+    #         }
+    #     ]
 
     LONG_ENTRY_SIGNAL_TRESHOLD = DecimalParameter(0.7, 0.95, decimals=2, default=0.8, space="buy", optimize=True)
     SHORT_ENTRY_SIGNAL_TRESHOLD = DecimalParameter(0.7, 0.95, decimals=2, default=0.8, space="buy", optimize=True)
@@ -345,8 +345,13 @@ class TM3BinaryClass(IStrategy):
         for result in results:
             result_cols.append(result.get())
 
-        df = pd.concat([df, *result_cols], axis=1)
+        # rename result_cols and append %- to the name
+        result_df = pd.concat([*result_cols], axis=1)
+        result_df.columns = ["%-"+x for x in result_df.columns]
 
+        df = pd.concat([df, result_df], axis=1)
+
+        the_pool.close()
         self.log(f"EXIT .feature_engineering_trend() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
 
         return df
@@ -484,7 +489,7 @@ class TM3BinaryClass(IStrategy):
         df = df.reset_index(drop=True)
 
         ## Classify trend
-        slope_filter = 0.3
+        slope_filter = self.freqai_info["feature_parameters"]["target_slope_filter"]
         df['&-trend_long'] = np.where(df['trend_slope'] > slope_filter, 'trend_long', 'trend_not_long')
         df['&-trend_short'] = np.where(df['trend_slope'] < -slope_filter, 'trend_short', 'trend_not_short')
 
@@ -535,19 +540,19 @@ class TM3BinaryClass(IStrategy):
 
         return df
 
-    def add_slope_indicator(self, df: DataFrame, target_var = "ohlc4_log") -> DataFrame:
+    def add_slope_indicator(self, df: DataFrame, target_var = "ohlc4_log", predict_target = 6) -> DataFrame:
         df = df.set_index(df['date'])
 
-        target = helpers.create_target(df, self.PREDICT_TARGET, method='polyfit', polyfit_var=target_var)
+        target = helpers.create_target(df, predict_target, method='polyfit', polyfit_var=target_var)
         target = target[['trend', 'slope', 'start_windows']].set_index('start_windows')
         target.fillna(0)
 
         # scale slope to 0-1
         target['slope'] = RobustScaler().fit_transform(target['slope'].values.reshape(-1, 1)).reshape(-1)
 
-        target.rename(columns={'slope': f'{target_var}_exp_slope', 'trend': f'{target_var}_exp_trend'}, inplace=True)
+        target.rename(columns={'slope': f'{target_var}{predict_target}_exp_slope', 'trend': f'{target_var}{predict_target}_exp_trend'}, inplace=True)
 
-        df = df.join(target[[f'{target_var}_exp_slope', f'{target_var}_exp_trend']], how='left')
+        df = df.join(target[[f'{target_var}{predict_target}_exp_slope', f'{target_var}{predict_target}_exp_trend']], how='left')
         df = df.reset_index(drop=True)
 
         return df
@@ -561,21 +566,14 @@ class TM3BinaryClass(IStrategy):
         df = candle_stats(df)
 
         # trend strength indicator
-        # df['trend_strength'] = df['trend_long'] - df['trend_short']
-        # df['trend_strength_abs'] = abs(df['trend_strength'])
-        # df['trend_short_inverse'] = df['trend_short'] * -1
+        df['trend_strength'] = df['trend_long'] - df['trend_short']
+        df['trend_strength_abs'] = abs(df['trend_strength'])
 
         # add slope indicators
-        df = self.add_slope_indicator(df, 'ohlc4_log')
-        # df = self.add_slope_indicator(df, 'ohlc4')
-        # df = self.add_slope_indicator(df, 'close')
+        df = self.add_slope_indicator(df, 'ohlc4_log', self.PREDICT_TARGET)
 
-        # scale predicted target
-        # df['&-trend_slope'] = df['&-trend'].apply(lambda x: (x - df['&-trend'].min()) / (df['&-trend'].max() - df['&-trend'].min()))
-
-        # calculate softmax probabilities for trend
-        # df['trend_long_softmax'] = np.exp(df['trend_long']) / (np.exp(df['trend_long']) + np.exp(df['trend_short']))
-        # df['trend_short_softmax'] = np.exp(df['trend_short']) / (np.exp(df['trend_long']) + np.exp(df['trend_short']))
+        # super short term indicator
+        df = self.add_slope_indicator(df, 'ohlc4_log', 3)
 
         df['L1'] = 1.0
         df['L0'] = 0
@@ -584,6 +582,9 @@ class TM3BinaryClass(IStrategy):
         # save df to file
         # df.to_csv("df_{}.csv".format(int(time.time())))
 
+        last_candle = df.iloc[-1].squeeze()
+        self.dp.send_msg(f"{metadata['pair']} predictions: \n  minima={last_candle['minima']:.2f}, \n  maxima={last_candle['maxima']:.2f}, \n  trend long={last_candle['trend_long']:.2f}, \n  trend short={last_candle['trend_short']:.2f}, \n  trend strength={last_candle['trend_strength']:.2f}")
+
         self.log(f"EXIT populate_indicators {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
         return df
 
@@ -591,57 +592,58 @@ class TM3BinaryClass(IStrategy):
         return (df["DI_values"] < df["DI_cutoff"])
 
     def signal_entry_long(self, df: DataFrame):
-        return (df["trend_long"] >= 0.7) & (df["minima"] >= 0.7)
+        minima_condition = (df['minima'] >= 0.8) & (df['trend_short'] < 0.6) # minima reached and trend is not short
+        # trend_condition = (df['trend_long'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['maxima'] < 0.5) # trend is long and maxima is not reached
+        # return minima_condition | trend_condition
+        return minima_condition
+
 
     def signal_entry_short(self, df: DataFrame):
-        return (df["trend_long"] >= 0.7) & (df["maxima"] >= 0.7)
+        maxima_condition = (df['maxima'] >= 0.8) & (df['trend_long'] < 0.6) # maxima reached and trend is not long
+        # trend_condition = (df['trend_short'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['minima'] < 0.5) # trend is short and minima is not reached
+
+        # return maxima_condition | trend_condition
+        return maxima_condition
 
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
 
-        df.loc[
-            (
-                self.signal_entry_long(df)
-            ),
-            'enter_long'] = 1
+        df.loc[self.signal_entry_long(df), 'enter_long'] = 1
 
-        df.loc[
-            (
-                self.signal_entry_short(df)
-            ),
-            'enter_short'] = 1
+        df.loc[self.signal_entry_short(df),'enter_short'] = 1
 
         return df
 
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
-        df.loc[
-            self.signal_entry_short(df),
-            'exit_long'] = 1
 
-        df.loc[
-            self.signal_entry_long(df),
-            'exit_short'] = 1
+        df.loc[self.signal_entry_short(df), 'exit_long'] = 1
+
+        df.loc[self.signal_entry_long(df), 'exit_short'] = 1
 
         return df
 
 
-    # def custom_exit(self, pair: str, trade: Trade, current_time: datetime, current_rate: float,
-    #                 current_profit: float, **kwargs):
-    #     df, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
-    #     last_candle = df.iloc[-1].squeeze()
-    #     trade_duration = (current_time - trade.open_date_utc).seconds / 60
-    #     is_short = trade.is_short == True
-    #     is_long = trade.is_short == False
-    #     is_profitable = current_profit > 0
-    #     is_short_signal = last_candle["&-trend"] <= -1
-    #     is_long_signal = last_candle["&-trend"] >= 1
+    def custom_exit(self, pair: str, trade: Trade, current_time: datetime, current_rate: float,
+                    current_profit: float, **kwargs):
+        df, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+        last_candle = df.iloc[-1].squeeze()
+        trade_duration = (current_time - trade.open_date_utc).seconds / 60
+        is_short = trade.is_short == True
+        is_long = trade.is_short == False
+        is_profitable = current_profit > 0
 
-    #     # exit on profit target & if not entry signal
-    #     if trade.is_open and is_long and (current_profit >= self.LONG_TP.value) and not is_long_signal:
-    #         return "long_profit_target_reached"
 
-    #     if trade.is_open and is_short and (current_profit >= self.SHORT_TP.value) and not is_short_signal:
-    #         return "short_profit_target_reached"
+        if trade.is_open and is_long and last_candle['maxima'] >= 0.6 and is_profitable:
+            return "maxima_reached"
+
+        if trade.is_open and is_long and last_candle['trend_short'] >= 0.7 and is_profitable:
+            return "trend_reserse_to_short"
+
+        if trade.is_open and is_short and last_candle['minima'] >= 0.6 and is_profitable:
+            return "minima_reached"
+
+        if trade.is_open and is_short and last_candle['trend_long'] >= 0.7 and is_profitable:
+            return "trend_reserse_to_long"
 
 
 
