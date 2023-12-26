@@ -212,15 +212,16 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
                 loss_graph = pd.DataFrame({"loss_values": best_f['loss_graph']['loss_values'], "removed_features_count": best_f['loss_graph']['removed_features_count']})
                 optimal_features = x_train.shape[1] - loss_graph[loss_graph['loss_values'] == loss_graph['loss_values'].min()]['removed_features_count'].max()
                 min_loss_value = loss_graph["loss_values"].min()
+                final_loss_value = loss_graph["loss_values"].iloc[-1]
 
-                log(f'Now optimal number of features = {optimal_features} with value = {min_loss_value}')
+                log(f'Now optimal number of features = {optimal_features} with value = {min_loss_value}, final loss value = {final_loss_value}')
 
                 # Convert DataFrame to wandb.Table
                 loss_table = wandb.Table(dataframe=loss_graph)
 
                 # Log the table to wandb
                 wandb.log({"Loss Graph": loss_table})
-                wandb.log({"Optimal Features": optimal_features, "Minimum Loss Value": min_loss_value})
+                wandb.log({"Optimal Features": optimal_features, "Minimum Loss Value": min_loss_value, "Final Loss Value": final_loss_value})
 
                 # Convert selected and eliminated features to wandb.Table
                 selected_features_table = wandb.Table(data=[best_f['selected_features_names']], columns=["Selected Features"])

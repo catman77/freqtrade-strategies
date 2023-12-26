@@ -1,0 +1,57 @@
+{
+    "max_open_trades": 4,
+    "add_config_files": [
+        "TM3BinaryClass.base.json"
+    ],
+    "exchange": {
+        "pair_whitelist": [
+            "BTC/USDT:USDT",
+            "ADA/USDT:USDT",
+            "ETH/USDT:USDT",
+            "SOL/USDT:USDT"
+        ]
+    },
+
+    "timeframe": "30m",
+    "freqai": {
+        "train_period_days": 60,
+        "label_period_candles": 6,
+        "identifier": "TM3EH_30m_1344",
+        "data_kitchen_thread_count": 2,
+        "feature_parameters" : {
+            "target_slope_filter": 0,
+
+            "include_timeframes": [
+                "4h", "1d"
+            ]
+        },
+        "data_split_parameters" : {
+            "test_size": 0.12
+        },
+        "model_training_parameters": {
+            "thread_count": 4
+        }
+    },
+    "internals": {
+        "process_throttle_secs": 15,
+        "sd_notify": true,
+        "heartbeat_interval": 60
+    },
+    "api_server": {
+        "enabled": true,
+        "listen_ip_address": "135.181.252.175",
+        "listen_port": 8888,
+        "verbosity": "error",
+        "enable_openapi": false,
+        "jwt_secret_key": "HAHAHAHA",
+        "CORS_origins": ["http://localhost:8888", "http://135.181.252.175:8888"],
+        "username": "master",
+        "password": "123456"
+    },
+
+    "telegram": {
+        "enabled": true,
+        "token": "6183354822:AAFsJ-55JXeX2pNnWnFzyYiaubLb-6PUJ3k",
+        "chat_id": "47319110"
+    }
+}
