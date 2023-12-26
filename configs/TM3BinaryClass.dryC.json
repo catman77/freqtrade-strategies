@@ -19,7 +19,7 @@
         "train_period_days": 100,
         "label_period_candles": 6,
         "identifier": "TM3_1h_1324",
-        "data_kitchen_thread_count": 2,
+        "data_kitchen_thread_count": 4,
         "feature_parameters" : {
             "target_slope_filter": 0,
 
