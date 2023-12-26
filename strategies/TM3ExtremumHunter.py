@@ -120,7 +120,7 @@ def get_distance(p1, p2):
     return abs((p1) - (p2))
 
 
-class TM3BinaryClass(IStrategy):
+class TM3ExtremumHunter(IStrategy):
     """
     Example strategy showing how the user connects their own
     IFreqaiModel to the strategy. Namely, the user uses:
@@ -232,7 +232,7 @@ class TM3BinaryClass(IStrategy):
     # user should define the maximum startup candle count (the largest number of candles
     # passed to any single indicator)
     # internally freqtrade multiply it by 2, so we put here 1/2 of the max startup candle count
-    startup_candle_count: int = 100
+    startup_candle_count: int = 200
 
     # @property
     # def protections(self):
@@ -459,27 +459,27 @@ class TM3BinaryClass(IStrategy):
         df = candle_stats(df)
         kernel = self.freqai_info["label_period_candles"]
 
-        # target: trend slope
-        df.set_index(df['date'], inplace=True)
-        target = helpers.create_target(df, self.PREDICT_TARGET,
-                                       method='polyfit', polyfit_var=self.TARGET_VAR)
-        target = target.set_index('start_windows')
-        scaled_slope = RobustScaler().fit_transform(target['slope'].values.reshape(-1, 1)).reshape(-1)
-        target['scaled_slope'] = scaled_slope
-        # align index
-        target = target.reindex(df.index)
-        # set trend target
-        df['trend_slope'] = target['scaled_slope'].copy()
-        # reset index and get back
-        df = df.reset_index(drop=True)
+        # # target: trend slope
+        # df.set_index(df['date'], inplace=True)
+        # target = helpers.create_target(df, self.PREDICT_TARGET,
+        #                                method='polyfit', polyfit_var=self.TARGET_VAR)
+        # target = target.set_index('start_windows')
+        # scaled_slope = RobustScaler().fit_transform(target['slope'].values.reshape(-1, 1)).reshape(-1)
+        # target['scaled_slope'] = scaled_slope
+        # # align index
+        # target = target.reindex(df.index)
+        # # set trend target
+        # df['trend_slope'] = target['scaled_slope'].copy()
+        # # reset index and get back
+        # df = df.reset_index(drop=True)
 
-        ## Classify trend
-        slope_filter = self.freqai_info["feature_parameters"]["target_slope_filter"]
-        df['&-trend_long'] = np.where(df['trend_slope'] > slope_filter, 'trend_long', 'trend_not_long')
-        df['&-trend_short'] = np.where(df['trend_slope'] < -slope_filter, 'trend_short', 'trend_not_short')
+        # ## Classify trend
+        # slope_filter = self.freqai_info["feature_parameters"]["target_slope_filter"]
+        # df['&-trend_long'] = np.where(df['trend_slope'] > slope_filter, 'trend_long', 'trend_not_long')
+        # df['&-trend_short'] = np.where(df['trend_slope'] < -slope_filter, 'trend_short', 'trend_not_short')
 
-        print(df['&-trend_long'].value_counts())
-        print(df['&-trend_short'].value_counts())
+        # print(df['&-trend_long'].value_counts())
+        # print(df['&-trend_short'].value_counts())
 
         # target: extrema
         df['extrema'] = 0
@@ -515,12 +515,12 @@ class TM3BinaryClass(IStrategy):
         df = df.loc[:, ~df.columns.duplicated(keep='first')]
 
         # remove last kernel rows
-        df.iloc[-kernel:, df.columns.get_loc("&-extrema_maxima")] = np.nan
-        df.iloc[-kernel:, df.columns.get_loc("&-extrema_minima")] = np.nan
-        df.iloc[-kernel:, df.columns.get_loc("&-trend_long")] = np.nan
-        df.iloc[-kernel:, df.columns.get_loc("&-trend_short")] = np.nan
+        # df.iloc[-kernel:, df.columns.get_loc("&-extrema_maxima")] = np.nan
+        # df.iloc[-kernel:, df.columns.get_loc("&-extrema_minima")] = np.nan
+        # df.iloc[-kernel:, df.columns.get_loc("&-trend_long")] = np.nan
+        # df.iloc[-kernel:, df.columns.get_loc("&-trend_short")] = np.nan
 
-        df.drop(columns=['open_log', 'low_log', 'high_log', 'close_log', 'hl2_log', 'hlc3_log', 'ohlc4_log', 'extrema', 'trend_slope'], inplace=True)
+        df.drop(columns=['open_log', 'low_log', 'high_log', 'close_log', 'hl2_log', 'hlc3_log', 'ohlc4_log', 'extrema'], inplace=True)
         self.log(f"EXIT .set_freqai_targets() {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
 
         return df
@@ -551,8 +551,8 @@ class TM3BinaryClass(IStrategy):
         df = candle_stats(df)
 
         # trend strength indicator
-        df['trend_strength'] = df['trend_long'] - df['trend_short']
-        df['trend_strength_abs'] = abs(df['trend_strength'])
+        # df['trend_strength'] = df['trend_long'] - df['trend_short']
+        # df['trend_strength_abs'] = abs(df['trend_strength'])
 
         # add slope indicators
         df = self.add_slope_indicator(df, 'ohlc4_log', self.PREDICT_TARGET)
@@ -568,7 +568,8 @@ class TM3BinaryClass(IStrategy):
         # df.to_csv("df_{}.csv".format(int(time.time())))
 
         last_candle = df.iloc[-1].squeeze()
-        self.dp.send_msg(f"{metadata['pair']} predictions: \n  minima={last_candle['minima']:.2f}, \n  maxima={last_candle['maxima']:.2f}, \n  trend long={last_candle['trend_long']:.2f}, \n  trend short={last_candle['trend_short']:.2f}, \n  trend strength={last_candle['trend_strength']:.2f}")
+        # self.dp.send_msg(f"{metadata['pair']} predictions: \n  minima={last_candle['minima']:.2f}, \n  maxima={last_candle['maxima']:.2f}, \n  trend long={last_candle['trend_long']:.2f}, \n  trend short={last_candle['trend_short']:.2f}, \n  trend strength={last_candle['trend_strength']:.2f}")
+        self.dp.send_msg(f"{metadata['pair']} predictions: \n  minima={last_candle['minima']:.2f}, \n  maxima={last_candle['maxima']:.2f}")
 
         self.log(f"EXIT populate_indicators {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
         return df
@@ -577,14 +578,14 @@ class TM3BinaryClass(IStrategy):
         return (df["DI_values"] < df["DI_cutoff"])
 
     def signal_entry_long(self, df: DataFrame):
-        minima_condition = (df['minima'] >= 0.8) & (df['trend_short'] < 0.6) # minima reached and trend is not short
+        minima_condition = (df['minima'] >= 0.82) # minima reached and trend is not short
         # trend_condition = (df['trend_long'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['maxima'] < 0.5) # trend is long and maxima is not reached
         # return minima_condition | trend_condition
         return minima_condition
 
 
     def signal_entry_short(self, df: DataFrame):
-        maxima_condition = (df['maxima'] >= 0.8) & (df['trend_long'] < 0.6) # maxima reached and trend is not long
+        maxima_condition = (df['maxima'] >= 0.82) # maxima reached and trend is not long
         # trend_condition = (df['trend_short'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['minima'] < 0.5) # trend is short and minima is not reached
 
         # return maxima_condition | trend_condition
@@ -630,14 +631,14 @@ class TM3BinaryClass(IStrategy):
         if trade.is_open and is_long and last_candle['maxima'] >= 0.6 and is_profitable:
             return "maxima_reached"
 
-        if trade.is_open and is_long and last_candle['trend_short'] >= 0.7 and is_profitable:
-            return "trend_reserse_to_short"
+        # if trade.is_open and is_long and last_candle['trend_short'] >= 0.7 and is_profitable:
+            # return "trend_reserse_to_short"
 
         if trade.is_open and is_short and last_candle['minima'] >= 0.6 and is_profitable:
             return "minima_reached"
 
-        if trade.is_open and is_short and last_candle['trend_long'] >= 0.7 and is_profitable:
-            return "trend_reserse_to_long"
+        # if trade.is_open and is_short and last_candle['trend_long'] >= 0.7 and is_profitable:
+            # return "trend_reserse_to_long"
 
 
 

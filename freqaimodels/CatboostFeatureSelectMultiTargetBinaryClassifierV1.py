@@ -4,6 +4,7 @@ import logging
 import sys
 from pathlib import Path
 from typing import Any, Dict
+import sdnotify
 
 from catboost import CatBoostClassifier, EFeaturesSelectionAlgorithm, EShapCalcType, Pool
 
@@ -24,6 +25,13 @@ from freqaimodels.MultiOutputClassifierWithFeatureSelect import MultiOutputClass
 
 
 logger = logging.getLogger(__name__)
+
+def heartbeat():
+    sdnotify.SystemdNotifier().notify("WATCHDOG=1")
+
+def log(msg, *args, **kwargs):
+    heartbeat()
+    logger.info(msg, *args, **kwargs)
 
 
 class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
@@ -58,6 +66,7 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
         return self.config["freqai"].get("identifier", "default")
 
     def wandb_init(self, project:str = "TM3", name: str = None, job_type: str = None, config: Dict = None):
+        # wandb.login(key=["ca8202923f1f937fac88fd39668ab6c97ec7d808"])
         wandb.init(
             # set the wandb project where this run will be logged
             project=project,
@@ -76,7 +85,7 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
                                 all the training and test data/labels.
         """
         # select features
-        selected_features_all_labels = self.feature_select(data_dictionary)
+        selected_features_all_labels = self.feature_select(data_dictionary, dk)
         labels = list(selected_features_all_labels.keys())
 
         # selected_features = data_dictionary["train_features"].columns.tolist()
@@ -95,7 +104,7 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
                     # weight=data_dictionary["test_weights"],
                 )
 
-        self.wandb_init(name=self.MODEL_IDENTIFIER + ".fit",
+        self.wandb_init(name=f"{self.MODEL_IDENTIFIER}_{dk.pair}.fit",
                         job_type="fit",
                         config=self.model_training_parameters)
 
@@ -125,7 +134,7 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
 
         return multi_model
 
-    def feature_select(self, data_dictionary):
+    def feature_select(self, data_dictionary, dk: FreqaiDataKitchen):
 
         select_model_config = {
             "task_type": "CPU",
@@ -144,9 +153,9 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
 
         selected_features_all_labels = {}
         for label in data_dictionary["train_labels"].columns:
-            logger.info(f'Selecting features for label = {label}')
+            log(f'Selecting features for label = {label}')
 
-            self.wandb_init(name=f"{self.MODEL_IDENTIFIER}.feature_select[{label}]",
+            self.wandb_init(name=f"{self.MODEL_IDENTIFIER}_{dk.pair}.feature_select[{label}]",
                 job_type="feature_select",
                 config={
                     "SELECT_FEATURES_ITERATIONS": self.SELECT_FEATURES_ITERATIONS,
@@ -155,7 +164,7 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
                     "AUTODETECT_NUM_FEATURES_TO_SELECT": self.AUTODETECT_NUM_FEATURES_TO_SELECT,
                     "FEATURE_SELECT_LABEL": self.FEATURE_SELECT_LABEL,
                     "MODEL_IDENTIFIER": self.MODEL_IDENTIFIER,
-                    **select_model_config
+                    # **select_model_config
                     })
 
             # transform and prepare data
@@ -198,15 +207,16 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
                 loss_graph = pd.DataFrame({"loss_values": best_f['loss_graph']['loss_values'], "removed_features_count": best_f['loss_graph']['removed_features_count']})
                 optimal_features = x_train.shape[1] - loss_graph[loss_graph['loss_values'] == loss_graph['loss_values'].min()]['removed_features_count'].max()
                 min_loss_value = loss_graph["loss_values"].min()
+                final_loss_value = loss_graph["loss_values"].iloc[-1]
 
-                logger.info(f'Now optimal number of features = {optimal_features} with value = {min_loss_value}')
+                log(f'Now optimal number of features = {optimal_features} with value = {min_loss_value}, final loss value = {final_loss_value}')
 
                 # Convert DataFrame to wandb.Table
                 loss_table = wandb.Table(dataframe=loss_graph)
 
                 # Log the table to wandb
                 wandb.log({"Loss Graph": loss_table})
-                wandb.log({"Optimal Features": optimal_features, "Minimum Loss Value": min_loss_value})
+                wandb.log({"Optimal Features": optimal_features, "Minimum Loss Value": min_loss_value, "Final Loss Value": final_loss_value})
 
                 # Convert selected and eliminated features to wandb.Table
                 selected_features_table = wandb.Table(data=[best_f['selected_features_names']], columns=["Selected Features"])
@@ -234,6 +244,7 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
         :do_predict: np.array of 1s and 0s to indicate places where freqai needed to remove
         data (NaNs) or felt uncertain about data (PCA and DI index)
         """
+        log(f'.predict with model = {self.MODEL_IDENTIFIER}')
 
         dk.find_features(unfiltered_df)
         filtered_df, _ = dk.filter_features(
@@ -266,6 +277,9 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
             dk.DI_values = np.zeros(outliers.shape[0])
         dk.do_predict = outliers
 
+        pred = pred_df.tail(1).squeeze().to_dict()
+        # log(f"predictions = maxima={pred['maxima']}, minima={pred['minima']}, trend_long={pred['trend_long']}, trend_short={pred['trend_short']}")
+
         return (pred_df, dk.do_predict)
 
     def define_data_pipeline(self, threads) -> Pipeline:
@@ -274,7 +288,7 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
         """
         feature_pipeline = Pipeline([
             ('scaler', SKLearnWrapper(RobustScaler())),
-            # ('di', ds.DissimilarityIndex(di_threshold=10, n_jobs=threads))
+            ('di', ds.DissimilarityIndex(di_threshold=10, n_jobs=threads))
         ])
 
         return feature_pipeline
