@@ -65,6 +65,10 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
     def MODEL_IDENTIFIER(self):
         return self.config["freqai"].get("identifier", "default")
 
+    @property
+    def THREAD_COUNT(self):
+        return self.config["freqai"]['model_training_parameters'].get("THREAD_COUNT", 4)
+
     def wandb_init(self, project:str = "TM3", name: str = None, job_type: str = None, config: Dict = None):
         # wandb.login(key=["ca8202923f1f937fac88fd39668ab6c97ec7d808"])
         wandb.init(
@@ -149,6 +153,7 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
             "save_snapshot": False,
             "allow_writing_files": False,
             "random_seed": 42,
+            "thread_count": self.THREAD_COUNT,
         }
 
         selected_features_all_labels = {}
@@ -278,7 +283,7 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
         dk.do_predict = outliers
 
         pred = pred_df.tail(1).squeeze().to_dict()
-        # log(f"predictions = maxima={pred['maxima']}, minima={pred['minima']}, trend_long={pred['trend_long']}, trend_short={pred['trend_short']}")
+        log(f"predictions = maxima={pred['maxima']}, minima={pred['minima']}, trend_long={pred['trend_long']}, trend_short={pred['trend_short']}")
 
         return (pred_df, dk.do_predict)
 

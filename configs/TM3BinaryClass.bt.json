@@ -5,18 +5,25 @@
 
     "timeframe": "1h",
 
+    "exchange": {
+        "pair_whitelist": [
+            "BTC/USDT:USDT"
+        ]
+    },
+
     "sagemaster": {
-        "CATBOOST_SELECT_FEATURES_ITERATIONS": 100,
+        "CATBOOST_SELECT_FEATURES_ITERATIONS": 1000,
         "CATBOOST_NUM_FEATURES_TO_SELECT": 2213,
-        "CATBOOST_SELECT_FEATURES_STEPS": 5,
-        "CATBOOST_AUTODETECT_NUM_FEATURES_TO_SELECT": false
+        "CATBOOST_SELECT_FEATURES_STEPS": 100,
+        "CATBOOST_AUTODETECT_NUM_FEATURES_TO_SELECT": false,
+        "CATBOOST_FEATURE_SELECT_PERIOD_DAYS": 10
     },
 
     "freqai": {
-        "train_period_days": 30,
+        "train_period_days": 100,
         "backtest_period_days": 1,
         "label_period_candles": 6,
-        "identifier": "TM3_1402",
+        "identifier": "TM3_1403",
         "feature_parameters" : {
             "target_slope_filter": 0,
 
@@ -28,7 +35,7 @@
             "test_size": 0.12
         },
         "model_training_parameters": {
-            "n_estimators": 100
+            "logging_level": "Verbose"
         }
     }
 }

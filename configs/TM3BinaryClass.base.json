@@ -126,7 +126,9 @@
     "force_entry_enable": true,
     "initial_state": "running",
     "internals": {
-        "process_throttle_secs": 10
+        "process_throttle_secs": 15,
+        "sd_notify": true,
+        "heartbeat_interval": 60
     },
     "api_server": {
         "enabled": true,
