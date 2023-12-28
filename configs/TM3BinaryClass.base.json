@@ -76,7 +76,8 @@
         "PREDICT_STORAGE_ENABLED": false,
         "PREDICT_STORAGE_CONN_STRING": "",
 
-        "TARGET_EXTREMA_WINDOW": 5
+        "TARGET_EXTREMA_WINDOW": 5,
+        "TARGET_EXTREMA_KERNEL": 6
     },
 
     "freqai": {

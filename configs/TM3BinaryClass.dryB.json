@@ -11,11 +11,19 @@
     },
 
     "timeframe": "30m",
+    "sagemaster": {
+        "CATBOOST_SELECT_FEATURES_ITERATIONS": 1000,
+        "CATBOOST_NUM_FEATURES_TO_SELECT": 4096,
+        "CATBOOST_SELECT_FEATURES_STEPS": 100,
+
+        "TARGET_EXTREMA_WINDOW": 3,
+        "TARGET_EXTREMA_KERNEL": 12
+    },
     "freqai": {
         "train_period_days": 60,
         "label_period_candles": 6,
-        "identifier": "TM3_30m_1343",
-        "data_kitchen_thread_count": 2,
+        "identifier": "TM3_30m_1344",
+        "data_kitchen_thread_count": 4,
         "feature_parameters" : {
             "target_slope_filter": 0,
 

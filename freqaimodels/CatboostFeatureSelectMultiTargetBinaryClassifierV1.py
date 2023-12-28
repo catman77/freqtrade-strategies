@@ -322,7 +322,7 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
         dk.do_predict = outliers
 
         pred = pred_df.tail(1).squeeze().to_dict()
-        log(f"predictions = maxima={pred['maxima']}, minima={pred['minima']}, trend_long={pred['trend_long']}, trend_short={pred['trend_short']}")
+        # log(f"predictions = maxima={pred['maxima']}, minima={pred['minima']}, trend_long={pred['trend_long']}, trend_short={pred['trend_short']}")
 
         return (pred_df, dk.do_predict)
 
