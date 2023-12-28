@@ -216,10 +216,10 @@ class TM3BinaryClass(IStrategy):
         }
 
     minimal_roi = {
-        "0": 0.07,
-        "120": 0.05,
-        "360": 0.03,
-        "1440": 0
+        "0": 0.0547,   # Spike return: 75th percentile, expecting in the first 6 hours
+        "360": 0.0353,  # Moderate return: Median value, expecting between 6 to 11 hours
+        "660": 0.0138,  # Low return: 25th percentile, expecting between 11 to 15 hours
+        "900": 0.00    # No targets hit: Any positive profit after 15 hours
     }
 
     TARGET_VAR = "ohlc4_log"
