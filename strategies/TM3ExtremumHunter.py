@@ -34,12 +34,12 @@ from freqtrade.persistence.trade_model import Trade
 from freqtrade.strategy import IStrategy
 from freqtrade.strategy.parameters import BooleanParameter, DecimalParameter, IntParameter
 from datetime import timedelta, datetime, timezone
-import multiprocessing as mp
 from freqtrade.optimize.space import Categorical, Dimension, Integer, SKDecimal
 import talib.abstract as ta
 from sqlalchemy import desc
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from scipy.signal import argrelextrema
+from joblib import Parallel, delayed
 
 from technical import qtpylib
 import pandas_ta as pta
@@ -285,16 +285,9 @@ class TM3ExtremumHunter(IStrategy):
 
         self.DEBUG = self.config["sagemaster"].get("debug", False)
 
-
-    def new_pool(self):
-        return mp.Pool(self.config["freqai"].get("data_kitchen_thread_count", 4))
-
-
     def feature_engineering_trend(self, df: DataFrame, metadata, **kwargs):
         self.log(f"ENTER .feature_engineering_trend() {metadata} {df.shape}")
         start_time = time.time()
-
-        the_pool = self.new_pool()
 
         # Trends for indicators
         all_cols = filter(lambda col:
@@ -322,22 +315,18 @@ class TM3ExtremumHunter(IStrategy):
         results = []
         result_cols = []
         # launch all processes
-        for col in all_cols:
-            result = the_pool.apply_async(helpers.create_col_trend, (col, self.PREDICT_TARGET, df, "polyfit"))
-            results.append(result)
+        # Use Parallel and delayed for multiprocessing
+        result_cols = Parallel(n_jobs=self.config["freqai"].get("data_kitchen_thread_count", 4))(
+            delayed(helpers.create_col_trend)(col, self.PREDICT_TARGET, df, "polyfit") for col in all_cols
+        )
 
-        # collect all results
-        for result in results:
-            result_cols.append(result.get())
-
-        # rename result_cols and append %- to the name
-        result_df = pd.concat([*result_cols], axis=1)
+        # Combine results
+        result_df = pd.concat(result_cols, axis=1)
         result_df.columns = ["%-"+x for x in result_df.columns]
 
         df = pd.concat([df, result_df], axis=1)
 
         self.log(f"EXIT .feature_engineering_trend() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
-        the_pool.close()
 
         return df
 

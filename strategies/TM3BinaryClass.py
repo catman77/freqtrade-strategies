@@ -327,7 +327,6 @@ class TM3BinaryClass(IStrategy):
         df = pd.concat([df, result_df], axis=1)
 
         self.log(f"EXIT .feature_engineering_trend() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
-        the_pool.close()
 
         return df
 
