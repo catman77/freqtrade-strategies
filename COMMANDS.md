@@ -32,11 +32,11 @@ run TM3BinaryClass strategy
 
 ```sh
 freqtrade trade \
-	--config user_data/configs/TM3BinaryClass.dev.json \
+	--config user_data/configs/TM3BinaryClass.test.json \
 	--freqaimodel CatboostFeatureSelectMultiTargetBinaryClassifierV1 \
 	--strategy TM3BinaryClass \
-	--logfile user_data/logs/TM3BinaryClass.dev.log \
-	--db-url sqlite:///user_data/db/TM3BinaryClass.dev.sqlite
+	--logfile user_data/logs/TM3BinaryClass.test.log \
+	--db-url sqlite:///user_data/db/TM3BinaryClass.test.sqlite
 ```
 
 ```sh
