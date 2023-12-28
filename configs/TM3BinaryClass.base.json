@@ -69,7 +69,15 @@
         "CATBOOST_SELECT_FEATURES_ITERATIONS": 1000,
         "CATBOOST_NUM_FEATURES_TO_SELECT": 2213,
         "CATBOOST_SELECT_FEATURES_STEPS": 100,
-        "CATBOOST_AUTODETECT_NUM_FEATURES_TO_SELECT": false
+        "CATBOOST_AUTODETECT_NUM_FEATURES_TO_SELECT": false,
+
+        "WANDB_PROJECT": "TM3-Live",
+
+        "PREDICT_STORAGE_ENABLED": false,
+        "PREDICT_STORAGE_CONN_STRING": "",
+
+        "TARGET_EXTREMA_WINDOW": 5,
+        "TARGET_EXTREMA_KERNEL": 6
     },
 
     "freqai": {
@@ -87,7 +95,25 @@
         "label_period_candles": 6,
         "track_performance": true,
         "extra_returns_per_train": {
-            "DI_cutoff": 2
+            "&-trend_long_roc_auc": -1,
+            "&-trend_long_f1": -1,
+            "&-trend_long_logloss": -1,
+            "&-trend_long_accuracy": -1,
+
+            "&-trend_short_roc_auc": -1,
+            "&-trend_short_f1": -1,
+            "&-trend_short_logloss": -1,
+            "&-trend_short_accuracy": -1,
+
+            "&-extrema_maxima_roc_auc": -1,
+            "&-extrema_maxima_f1": -1,
+            "&-extrema_maxima_logloss": -1,
+            "&-extrema_maxima_accuracy": -1,
+
+            "&-extrema_minima_roc_auc": -1,
+            "&-extrema_minima_f1": -1,
+            "&-extrema_minima_logloss": -1,
+            "&-extrema_minima_accuracy": -1
         },
         "identifier": "TM3BC_1317",
         "feature_parameters" : {

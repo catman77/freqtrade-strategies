@@ -44,6 +44,8 @@ from joblib import Parallel, delayed
 from technical import qtpylib
 import pandas_ta as pta
 
+from lib.prediction_storage import PredictionStorage
+
 logger = logging.getLogger(__name__)
 
 # ignore warnings
@@ -83,7 +85,6 @@ def top_percent_change(dataframe: DataFrame, length: int) -> float:
         return (dataframe['open'] - dataframe['close']) / dataframe['close']
     else:
         return (dataframe['open'].rolling(length).max() - dataframe['close']) / dataframe['close']
-
 
 def chaikin_mf(df, periods=20):
     close = df['close']
@@ -169,63 +170,66 @@ class TM3BinaryClass(IStrategy):
 
             return roi_table
 
-
-
         plot_config = {
-        "main_plot": {},
-        "subplots": {
-            "real": {
-            "L1": {
-                "color": "#616161",
-                "type": "line"
-            },
-            "L-1": {
-                "color": "#575757",
-                "type": "line"
-            },
-            "ohlc4_log6_exp_slope": {
-                "color": "#73da2b"
-            }
-            },
-            "trend": {
-            "trend_long": {
-                "color": "#49ee5c",
-                "type": "line"
-            },
-            "trend_short": {
-                "color": "#e36cc7",
-                "type": "line"
-            }
-            },
-            "extrema": {
-            "maxima": {
-                "color": "#b719c2",
-                "type": "line"
-            },
-            "minima": {
-                "color": "#1fe07c",
-                "type": "line"
-            },
-            "do_predict": {
-                "color": "#116417",
-                "type": "bar"
-            }
-            }
-        }
+            "main_plot": {},
+            "subplots": {
+                "real": {
+                    "L1": {
+                        "color": "#616161",
+                        "type": "line"
+                    },
+                    "L-1": {
+                        "color": "#575757",
+                        "type": "line"
+                    },
+                    "ohlc4_log6_exp_slope": {
+                        "color": "#73da2b"
+                    }
+                    },
+                "trend": {
+                    "trend_long": {
+                        "color": "#49ee5c",
+                        "type": "line"
+                    },
+                    "trend_short": {
+                        "color": "#e36cc7",
+                        "type": "line"
+                    },
+                    "do_predict": {
+                        "color": "#116417",
+                        "type": "bar"
+                    }
+                    },
+                "extrema": {
+                    "maxima": {
+                        "color": "#b719c2",
+                        "type": "line"
+                    },
+                    "minima": {
+                        "color": "#1fe07c",
+                        "type": "line"
+                    },
+                    "do_predict": {
+                        "color": "#116417",
+                        "type": "bar"
+                    }
+                    }
+                }
         }
 
-    minimal_roi = { "0": 0.07 }
+    minimal_roi = {
+        "0": 0.13
+    }
 
     TARGET_VAR = "ohlc4_log"
-    DEBUG = False
 
     process_only_new_candles = True
     use_exit_signal = True
     can_short = True
     ignore_roi_if_entry_signal = True
 
-    stoploss = -0.016
-    trailing_stop = False
+    stoploss = -0.012
+    trailing_stop = True
     trailing_only_offset_is_reached  = False
     trailing_stop_positive_offset = 0
 
@@ -233,20 +237,6 @@ class TM3BinaryClass(IStrategy):
     # passed to any single indicator)
     # internally freqtrade multiply it by 2, so we put here 1/2 of the max startup candle count
     startup_candle_count: int = 100
-
-    # @property
-    # def protections(self):
-    #     return [
-    #         {
-    #             "method": "StoplossGuard",
-    #             "lookback_period_candles": 1,
-    #             "trade_limit": 1,
-    #             "stop_duration_candles": 24,
-    #             "required_profit": -0.005,
-    #             "only_per_pair": True,
-    #             "only_per_side": True
-    #         }
-    #     ]
 
     LONG_ENTRY_SIGNAL_TRESHOLD = DecimalParameter(0.7, 0.95, decimals=2, default=0.8, space="buy", optimize=True)
     SHORT_ENTRY_SIGNAL_TRESHOLD = DecimalParameter(0.7, 0.95, decimals=2, default=0.8, space="buy", optimize=True)
@@ -256,34 +246,36 @@ class TM3BinaryClass(IStrategy):
     LONG_TP = DecimalParameter(0.01, 0.03, decimals=3, default=0.016, space="sell", optimize=True)
     SHORT_TP = DecimalParameter(0.01, 0.03, decimals=3, default=0.016, space="sell", optimize=True)
 
-
     # user should define the maximum startup candle count (the largest number of candles
     # passed to any single indicator)
     # internally freqtrade multiply it by 2, so we put here 1/2 of the max startup candle count
-    startup_candle_count: int = 100
 
     @property
     def PREDICT_TARGET(self):
         return self.config["freqai"].get("label_period_candles", 6)
 
-    # @property
-    # def protections(self):
-    #     return [
-    #         {
-    #             "method": "StoplossGuard",
-    #             "lookback_period_candles": 6,
-    #             "trade_limit": 2,
-    #             "stop_duration_candles": 12,
-    #             "required_profit": 0.0,
-    #             "only_per_pair": True,
-    #             "only_per_side": True
-    #         }
-    #     ]
+    @property
+    def PREDICT_STORAGE_ENABLED(self):
+        return self.config["sagemaster"].get("PREDICT_STORAGE_ENABLED")
+
+    @property
+    def PREDICT_STORAGE_CONN_STRING(self):
+        return self.config["sagemaster"].get("PREDICT_STORAGE_CONN_STRING")
+
+
+    @property
+    def TARGET_EXTREMA_KERNEL(self):
+        return self.config["sagemaster"].get('TARGET_EXTREMA_KERNEL', 24)
+
+    @property
+    def TARGET_EXTREMA_WINDOW(self):
+        return self.config["sagemaster"].get('TARGET_EXTREMA_WINDOW', 5)
 
     def bot_start(self, **kwargs) -> None:
         print("bot_start")
 
-        self.DEBUG = self.config["sagemaster"].get("debug", False)
+        if (self.PREDICT_STORAGE_ENABLED):
+            self.ps = PredictionStorage(connection_string=self.config["sagemaster"].get("PREDICT_STORAGE_CONN_STRING"))
 
     def feature_engineering_trend(self, df: DataFrame, metadata, **kwargs):
         self.log(f"ENTER .feature_engineering_trend() {metadata} {df.shape}")
@@ -446,7 +438,7 @@ class TM3BinaryClass(IStrategy):
         start_time = time.time()
 
         df = candle_stats(df)
-        kernel = self.freqai_info["label_period_candles"]
+
 
         # target: trend slope
         df.set_index(df['date'], inplace=True)
@@ -458,7 +450,8 @@ class TM3BinaryClass(IStrategy):
         # align index
         target = target.reindex(df.index)
         # set trend target
-        df['trend_slope'] = target['scaled_slope'].copy()
+        df['trend_slope'] = np.nan
+        df['trend_slope'] = target['scaled_slope']
         # reset index and get back
         df = df.reset_index(drop=True)
 
@@ -474,11 +467,11 @@ class TM3BinaryClass(IStrategy):
         df['extrema'] = 0
         min_peaks = argrelextrema(
             df["low_log"].values, np.less,
-            order=kernel
+            order=self.TARGET_EXTREMA_KERNEL
         )
         max_peaks = argrelextrema(
             df["high_log"].values, np.greater,
-            order=kernel
+            order=self.TARGET_EXTREMA_KERNEL
         )
 
         print(f"min_peaks: {len(min_peaks[0])}, max_peaks: {len(max_peaks[0])}")
@@ -489,7 +482,7 @@ class TM3BinaryClass(IStrategy):
             df.at[mp, "extrema"] = 1
 
         df['extrema'] = df['extrema'].rolling(
-            window=5, win_type='gaussian', center=True).mean(std=0.5)
+            window=self.TARGET_EXTREMA_WINDOW, win_type='gaussian', center=True).mean(std=0.5)
 
         # print(df['extrema'].value_counts())
 
@@ -504,10 +497,10 @@ class TM3BinaryClass(IStrategy):
         df = df.loc[:, ~df.columns.duplicated(keep='first')]
 
         # remove last kernel rows
-        df.iloc[-kernel:, df.columns.get_loc("&-extrema_maxima")] = np.nan
-        df.iloc[-kernel:, df.columns.get_loc("&-extrema_minima")] = np.nan
-        df.iloc[-kernel:, df.columns.get_loc("&-trend_long")] = np.nan
-        df.iloc[-kernel:, df.columns.get_loc("&-trend_short")] = np.nan
+        # df.iloc[-kernel:, df.columns.get_loc("&-extrema_maxima")] = np.nan
+        # df.iloc[-kernel:, df.columns.get_loc("&-extrema_minima")] = np.nan
+        # df.iloc[-kernel:, df.columns.get_loc("&-trend_long")] = np.nan
+        # df.iloc[-kernel:, df.columns.get_loc("&-trend_short")] = np.nan
 
         df.drop(columns=['open_log', 'low_log', 'high_log', 'close_log', 'hl2_log', 'hlc3_log', 'ohlc4_log', 'extrema', 'trend_slope'], inplace=True)
         self.log(f"EXIT .set_freqai_targets() {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
@@ -546,9 +539,6 @@ class TM3BinaryClass(IStrategy):
         # add slope indicators
         df = self.add_slope_indicator(df, 'ohlc4_log', self.PREDICT_TARGET)
 
-        # super short term indicator
-        df = self.add_slope_indicator(df, 'ohlc4_log', 3)
-
         df['L1'] = 1.0
         df['L0'] = 0
         df['L-1'] = -1.0
@@ -557,7 +547,62 @@ class TM3BinaryClass(IStrategy):
         # df.to_csv("df_{}.csv".format(int(time.time())))
 
         last_candle = df.iloc[-1].squeeze()
+
+        self.log("Prediction values:")
+        self.log(f"{metadata['pair']}: do_predict={last_candle['do_predict']:.2f}")
+        self.log(f"{metadata['pair']}: minima={last_candle['minima']:.2f}")
+        self.log(f"{metadata['pair']}: maxima={last_candle['maxima']:.2f}")
+        self.log(f"{metadata['pair']}: trend_long={last_candle['trend_long']:.2f}")
+        self.log(f"{metadata['pair']}: trend_short={last_candle['trend_short']:.2f}")
+        self.log(f"{metadata['pair']}: trend_long_roc_auc={last_candle['&-trend_long_roc_auc']:.2f}")
+        self.log(f"{metadata['pair']}: trend_long_f1={last_candle['&-trend_long_f1']:.2f}")
+        self.log(f"{metadata['pair']}: trend_long_logloss={last_candle['&-trend_long_logloss']:.2f}")
+        self.log(f"{metadata['pair']}: trend_long_accuracy={last_candle['&-trend_long_accuracy']:.2f}")
+        self.log(f"{metadata['pair']}: trend_short_roc_auc={last_candle['&-trend_short_roc_auc']:.2f}")
+        self.log(f"{metadata['pair']}: trend_short_f1={last_candle['&-trend_short_f1']:.2f}")
+        self.log(f"{metadata['pair']}: trend_short_logloss={last_candle['&-trend_short_logloss']:.2f}")
+        self.log(f"{metadata['pair']}: trend_short_accuracy={last_candle['&-trend_short_accuracy']:.2f}")
+        self.log(f"{metadata['pair']}: extrema_maxima_roc_auc={last_candle['&-extrema_maxima_roc_auc']:.2f}")
+        self.log(f"{metadata['pair']}: extrema_maxima_f1={last_candle['&-extrema_maxima_f1']:.2f}")
+        self.log(f"{metadata['pair']}: extrema_maxima_logloss={last_candle['&-extrema_maxima_logloss']:.2f}")
+        self.log(f"{metadata['pair']}: extrema_maxima_accuracy={last_candle['&-extrema_maxima_accuracy']:.2f}")
+        self.log(f"{metadata['pair']}: extrema_minima_roc_auc={last_candle['&-extrema_minima_roc_auc']:.2f}")
+        self.log(f"{metadata['pair']}: extrema_minima_f1={last_candle['&-extrema_minima_f1']:.2f}")
+        self.log(f"{metadata['pair']}: extrema_minima_logloss={last_candle['&-extrema_minima_logloss']:.2f}")
+        self.log(f"{metadata['pair']}: extrema_minima_accuracy={last_candle['&-extrema_minima_accuracy']:.2f}")
+
+
         self.dp.send_msg(f"{metadata['pair']} predictions: \n  minima={last_candle['minima']:.2f}, \n  maxima={last_candle['maxima']:.2f}, \n  trend long={last_candle['trend_long']:.2f}, \n  trend short={last_candle['trend_short']:.2f}, \n  trend strength={last_candle['trend_strength']:.2f}")
+
+        ## save prediction to db
+        if (self.PREDICT_STORAGE_ENABLED and self.ps
+                and (last_candle['do_predict'] == 1)):
+            self.ps.save_prediction(
+                model_version=self.freqai.identifier,
+                pair=metadata['pair'],
+                timeframe=self.timeframe,
+                trend_long = float(last_candle['trend_long']),
+                trend_short = float(last_candle['trend_short']),
+                maxima = float(last_candle['maxima']),
+                minima = float(last_candle['minima']),
+                trend_long_roc_auc = float(last_candle['&-trend_long_roc_auc']),
+                trend_long_f1 = float(last_candle['&-trend_long_f1']),
+                trend_long_logloss = float(last_candle['&-trend_long_logloss']),
+                trend_long_accuracy = float(last_candle['&-trend_long_accuracy']),
+                trend_short_roc_auc = float(last_candle['&-trend_short_roc_auc']),
+                trend_short_f1 = float(last_candle['&-trend_short_f1']),
+                trend_short_logloss = float(last_candle['&-trend_short_logloss']),
+                trend_short_accuracy = float(last_candle['&-trend_short_accuracy']),
+                extrema_maxima_roc_auc = float(last_candle['&-extrema_maxima_roc_auc']),
+                extrema_maxima_f1 = float(last_candle['&-extrema_maxima_f1']),
+                extrema_maxima_logloss = float(last_candle['&-extrema_maxima_logloss']),
+                extrema_maxima_accuracy = float(last_candle['&-extrema_maxima_accuracy']),
+                extrema_minima_roc_auc = float(last_candle['&-extrema_minima_roc_auc']),
+                extrema_minima_f1 = float(last_candle['&-extrema_minima_f1']),
+                extrema_minima_logloss = float(last_candle['&-extrema_minima_logloss']),
+                extrema_minima_accuracy = float(last_candle['&-extrema_minima_accuracy']),
+                candle_time=last_candle['date']
+            )
 
         self.log(f"EXIT populate_indicators {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
         return df
@@ -566,17 +611,31 @@ class TM3BinaryClass(IStrategy):
         return (df["DI_values"] < df["DI_cutoff"])
 
     def signal_entry_long(self, df: DataFrame):
-        minima_condition = (df['minima'] >= 0.8) & (df['trend_short'] < 0.6) # minima reached and trend is not short
+        minima_condition1 = qtpylib.crossed_below(df['minima'], 0.8) & (df['trend_short'] < 0.6) # minima reached and trend is not short
+        minima_condition2 = qtpylib.crossed_above(df['minima'], 0.9) & (df['trend_short'] < 0.7)
         # trend_condition = (df['trend_long'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['maxima'] < 0.5) # trend is long and maxima is not reached
         # return minima_condition | trend_condition
-        return minima_condition
+        return minima_condition1 | minima_condition2
+
+    def signal_exit_long(self, df: DataFrame):
+        maxima_condition = df['maxima'] >= 0.8
+        # trend_condition = df['trend_long'] >= 0.9
+        # return minima_condition | trend_condition
+        return maxima_condition
 
 
     def signal_entry_short(self, df: DataFrame):
-        maxima_condition = (df['maxima'] >= 0.8) & (df['trend_long'] < 0.6) # maxima reached and trend is not long
+        maxima_condition1 = qtpylib.crossed_below(df['maxima'], 0.8) & (df['trend_long'] < 0.6) # maxima reached and trend is not long
+        maxima_condition2 = qtpylib.crossed_above(df['maxima'], 0.9) & (df['trend_long'] < 0.7)
         # trend_condition = (df['trend_short'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['minima'] < 0.5) # trend is short and minima is not reached
 
         # return maxima_condition | trend_condition
+        return maxima_condition1 | maxima_condition2
+
+    def signal_exit_short(self, df: DataFrame):
+        maxima_condition = df['minima'] >= 0.8
+        # trend_condition = df['trend_long'] >= 0.9
+        # return minima_condition | trend_condition
         return maxima_condition
 
 
@@ -590,9 +649,9 @@ class TM3BinaryClass(IStrategy):
 
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
 
-        df.loc[self.signal_entry_short(df), 'exit_long'] = 1
+        df.loc[self.signal_exit_long(df), 'exit_long'] = 1
 
-        df.loc[self.signal_entry_long(df), 'exit_short'] = 1
+        df.loc[self.signal_exit_short(df), 'exit_short'] = 1
 
         return df
 
@@ -601,33 +660,114 @@ class TM3BinaryClass(IStrategy):
                     current_profit: float, **kwargs):
         df, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
 
-        print(df.tail(3))
         if df.empty:
             # Handle the empty DataFrame case
             return None  # Or other appropriate handling
 
         last_candle = df.iloc[-1].squeeze()
 
-        print(last_candle)
-
         trade_duration = (current_time - trade.open_date_utc).seconds / 60
         is_short = trade.is_short == True
         is_long = trade.is_short == False
         is_profitable = current_profit > 0
 
+        roi_result = self.check_roi(pair, current_time, trade.open_date_utc, current_profit)
+        if roi_result:
+            return roi_result
 
         if trade.is_open and is_long and last_candle['maxima'] >= 0.6 and is_profitable:
-            return "maxima_reached"
+            return "almost_maxima"
 
         if trade.is_open and is_long and last_candle['trend_short'] >= 0.7 and is_profitable:
             return "trend_reserse_to_short"
 
         if trade.is_open and is_short and last_candle['minima'] >= 0.6 and is_profitable:
-            return "minima_reached"
+            return "almost_minima"
 
         if trade.is_open and is_short and last_candle['trend_long'] >= 0.7 and is_profitable:
             return "trend_reserse_to_long"
 
+
+    ####
+    # Dynamic ROI
+    cached_roi_tables = {}
+
+    def get_or_create_roi_table(self, pair, kernel=6):
+        # Check cache first
+        if pair in self.cached_roi_tables:
+            return self.cached_roi_tables[pair]
+
+        # Get analyzed dataframe
+        df, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+        if df.empty:
+            return None
+
+        # Analyze candles to create ROI table
+        min_peaks = argrelextrema(df["low"].values, np.less, order=kernel)[0]
+        max_peaks = argrelextrema(df["high"].values, np.greater, order=kernel)[0]
+
+        # Prepare lists for data
+        distances = []
+        candles_between_peaks = []
+
+        # Iterate over low peaks to find the next high peak
+        for low_peak in min_peaks:
+            next_high_peaks = max_peaks[max_peaks > low_peak]
+            if next_high_peaks.size > 0:
+                high_peak = next_high_peaks[0]
+                low_price = df.at[low_peak, 'close']
+                high_price = df.at[high_peak, 'close']
+                distance_percentage = ((high_price - low_price) / low_price)
+                distances.append(distance_percentage)
+                num_candles = high_peak - low_peak
+                candles_between_peaks.append(num_candles)
+
+        # Iterate over high peaks to find the next low peak
+        for high_peak in max_peaks:
+            next_low_peaks = min_peaks[min_peaks > high_peak]
+            if next_low_peaks.size > 0:
+                low_peak = next_low_peaks[0]
+                high_price = df.at[high_peak, 'close']
+                low_price = df.at[low_peak, 'close']
+                distance_percentage = -((low_price - high_price) / high_price)
+                distances.append(distance_percentage)
+                num_candles = low_peak - high_peak
+                candles_between_peaks.append(num_candles)
+
+        if not distances or not candles_between_peaks:
+            return None
+
+        distances_description = pd.Series(distances).describe()
+        candles_between_peaks_description = pd.Series(candles_between_peaks).describe()
+
+        # Creating dynamic ROI table using calculated statistics
+        dynamic_roi = {
+            "0": distances_description['75%'],
+            str(int(candles_between_peaks_description['25%'] * 60)): distances_description['50%'],
+            str(int(candles_between_peaks_description['50%'] * 60)): distances_description['25%'],
+            str(int(candles_between_peaks_description['75%'] * 60)): 0.00  # Using 75th percentile for the last tier
+        }
+
+        # Cache the ROI table
+        self.cached_roi_tables[pair] = dynamic_roi
+        return dynamic_roi
+
+
+    def check_roi(self, pair, current_time, trade_open_date_utc, current_profit):
+        dynamic_roi = self.get_or_create_roi_table(pair, kernel=self.TARGET_EXTREMA_KERNEL)
+        if not dynamic_roi:
+            return None
+
+        # print("dymanic roi for pair:", pair)
+        # print(dynamic_roi)
+
+        trade_duration = (current_time - trade_open_date_utc).seconds / 60
+        for roi_time, roi_value in dynamic_roi.items():
+            if trade_duration >= int(roi_time) and current_profit >= roi_value:
+                # print(f"ROI reached: {roi_value} at {roi_time} minutes")
+                return "dynamic_roi"
+
+        return None
 
 
     # def confirm_trade_entry(self, pair: str, order_type: str, amount: float, rate: float,

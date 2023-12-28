@@ -32,11 +32,11 @@ run TM3BinaryClass strategy
 
 ```sh
 freqtrade trade \
-	--config user_data/configs/TM3BinaryClass.dev.json \
+	--config user_data/configs/TM3BinaryClass.test.json \
 	--freqaimodel CatboostFeatureSelectMultiTargetBinaryClassifierV1 \
 	--strategy TM3BinaryClass \
-	--logfile user_data/logs/TM3BinaryClass.dev.log \
-	--db-url sqlite:///user_data/db/TM3BinaryClass.dev.sqlite
+	--logfile user_data/logs/TM3BinaryClass.test.log \
+	--db-url sqlite:///user_data/db/TM3BinaryClass.test.sqlite
 ```
 
 ```sh
@@ -60,3 +60,5 @@ freqtrade backtesting \
 
 freqtrade download-data --timerange "20231101-" -t 1h 4h 12h 1d -p ADA/USDT:USDT BTC/USDT:USDT --exchange binance
 freqtrade  download-data --exchange binance --pairs BTC/USDT:USDT ADA/USDT:USDT --trading-mode futures --timerange 20230101- -t 1h 4h 6h 12h 1d
+
+freqtrade  download-data --exchange binance  --trading-mode futures --timerange 20220601- -t 1h 4h 6h 12h 1d --config user_data/configs/TM3BinaryClass.producer.json
