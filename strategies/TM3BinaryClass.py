@@ -214,7 +214,12 @@ class TM3BinaryClass(IStrategy):
         }
         }
 
-    minimal_roi = { "0": 0.07 }
+    minimal_roi = {
+        "0": 0.07,
+        "120": 0.05,
+        "360": 0.03,
+        "1440": 0
+        }
 
     TARGET_VAR = "ohlc4_log"
     DEBUG = False
@@ -224,8 +229,8 @@ class TM3BinaryClass(IStrategy):
     can_short = True
     ignore_roi_if_entry_signal = True
 
-    stoploss = -0.016
-    trailing_stop = False
+    stoploss = -0.012
+    trailing_stop = True
     trailing_only_offset_is_reached  = False
     trailing_stop_positive_offset = 0
 
@@ -327,7 +332,6 @@ class TM3BinaryClass(IStrategy):
         df = pd.concat([df, result_df], axis=1)
 
         self.log(f"EXIT .feature_engineering_trend() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
-        the_pool.close()
 
         return df
 
@@ -448,6 +452,7 @@ class TM3BinaryClass(IStrategy):
 
         df = candle_stats(df)
         kernel = self.freqai_info["label_period_candles"]
+        extrema_window = self.config["sagemaster"].get('TARGET_EXTREMA_WINDOW', 5)
 
         # target: trend slope
         df.set_index(df['date'], inplace=True)
@@ -490,7 +495,7 @@ class TM3BinaryClass(IStrategy):
             df.at[mp, "extrema"] = 1
 
         df['extrema'] = df['extrema'].rolling(
-            window=5, win_type='gaussian', center=True).mean(std=0.5)
+            window=extrema_window, win_type='gaussian', center=True).mean(std=0.5)
 
         # print(df['extrema'].value_counts())
 
@@ -505,10 +510,10 @@ class TM3BinaryClass(IStrategy):
         df = df.loc[:, ~df.columns.duplicated(keep='first')]
 
         # remove last kernel rows
-        df.iloc[-kernel:, df.columns.get_loc("&-extrema_maxima")] = np.nan
-        df.iloc[-kernel:, df.columns.get_loc("&-extrema_minima")] = np.nan
-        df.iloc[-kernel:, df.columns.get_loc("&-trend_long")] = np.nan
-        df.iloc[-kernel:, df.columns.get_loc("&-trend_short")] = np.nan
+        # df.iloc[-kernel:, df.columns.get_loc("&-extrema_maxima")] = np.nan
+        # df.iloc[-kernel:, df.columns.get_loc("&-extrema_minima")] = np.nan
+        # df.iloc[-kernel:, df.columns.get_loc("&-trend_long")] = np.nan
+        # df.iloc[-kernel:, df.columns.get_loc("&-trend_short")] = np.nan
 
         df.drop(columns=['open_log', 'low_log', 'high_log', 'close_log', 'hl2_log', 'hlc3_log', 'ohlc4_log', 'extrema', 'trend_slope'], inplace=True)
         self.log(f"EXIT .set_freqai_targets() {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
@@ -567,17 +572,31 @@ class TM3BinaryClass(IStrategy):
         return (df["DI_values"] < df["DI_cutoff"])
 
     def signal_entry_long(self, df: DataFrame):
-        minima_condition = (df['minima'] >= 0.8) & (df['trend_short'] < 0.6) # minima reached and trend is not short
+        minima_condition1 = qtpylib.crossed_below(df['minima'], 0.8) & (df['trend_short'] < 0.6) # minima reached and trend is not short
+        minima_condition2 = qtpylib.crossed_above(df['minima'], 0.9) & (df['trend_short'] < 0.7)
         # trend_condition = (df['trend_long'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['maxima'] < 0.5) # trend is long and maxima is not reached
         # return minima_condition | trend_condition
-        return minima_condition
+        return minima_condition1 | minima_condition2
+
+    def signal_exit_long(self, df: DataFrame):
+        maxima_condition = df['maxima'] >= 0.8
+        # trend_condition = df['trend_long'] >= 0.9
+        # return minima_condition | trend_condition
+        return maxima_condition
 
 
     def signal_entry_short(self, df: DataFrame):
-        maxima_condition = (df['maxima'] >= 0.8) & (df['trend_long'] < 0.6) # maxima reached and trend is not long
+        maxima_condition1 = qtpylib.crossed_below(df['maxima'], 0.8) & (df['trend_long'] < 0.6) # maxima reached and trend is not long
+        maxima_condition2 = qtpylib.crossed_above(df['maxima'], 0.9) & (df['trend_long'] < 0.7)
         # trend_condition = (df['trend_short'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['minima'] < 0.5) # trend is short and minima is not reached
 
         # return maxima_condition | trend_condition
+        return maxima_condition1 | maxima_condition2
+
+    def signal_exit_short(self, df: DataFrame):
+        maxima_condition = df['minima'] >= 0.8
+        # trend_condition = df['trend_long'] >= 0.9
+        # return minima_condition | trend_condition
         return maxima_condition
 
 
@@ -591,9 +610,9 @@ class TM3BinaryClass(IStrategy):
 
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
 
-        df.loc[self.signal_entry_short(df), 'exit_long'] = 1
+        df.loc[self.signal_exit_long(df), 'exit_long'] = 1
 
-        df.loc[self.signal_entry_long(df), 'exit_short'] = 1
+        df.loc[self.signal_exit_short(df), 'exit_short'] = 1
 
         return df
 
