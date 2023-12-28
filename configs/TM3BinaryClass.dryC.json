@@ -15,6 +15,11 @@
     },
 
     "timeframe": "1h",
+
+    "sagemaster": {
+        "TARGET_EXTREMA_WINDOW": 5
+    },
+
     "freqai": {
         "train_period_days": 100,
         "label_period_candles": 6,

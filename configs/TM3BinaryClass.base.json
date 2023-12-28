@@ -74,7 +74,9 @@
         "WANDB_PROJECT": "TM3-Live",
 
         "PREDICT_STORAGE_ENABLED": false,
-        "PREDICT_STORAGE_CONN_STRING": ""
+        "PREDICT_STORAGE_CONN_STRING": "",
+
+        "TARGET_EXTREMA_WINDOW": 5
     },
 
     "freqai": {
