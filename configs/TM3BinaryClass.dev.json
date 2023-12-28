@@ -3,12 +3,12 @@
         "TM3BinaryClass.base.json"
     ],
 
-    "timeframe": "1h",
+    "timeframe": "15m",
 
     "sagemaster": {
         "CATBOOST_SELECT_FEATURES_ITERATIONS": 100,
         "CATBOOST_NUM_FEATURES_TO_SELECT": 2213,
-        "CATBOOST_SELECT_FEATURES_STEPS": 5,
+        "CATBOOST_SELECT_FEATURES_STEPS": 2,
         "CATBOOST_AUTODETECT_NUM_FEATURES_TO_SELECT": false
     },
 
@@ -16,19 +16,22 @@
         "train_period_days": 30,
         "backtest_period_days": 1,
         "label_period_candles": 6,
-        "identifier": "TM3_1402",
+        "identifier": "TM3_1502",
+        "data_kitchen_thread_count": 20,
         "feature_parameters" : {
             "target_slope_filter": 0,
 
             "include_timeframes": [
-                "4h", "1d"
+                "1h", "4h"
             ]
         },
         "data_split_parameters" : {
             "test_size": 0.12
         },
         "model_training_parameters": {
-            "n_estimators": 100
+            "n_estimators": 100,
+            "thread_count": 20,
+            "logging_level": "Silent"
         }
     }
 }

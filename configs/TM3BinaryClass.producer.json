@@ -1,0 +1,82 @@
+{
+    "add_config_files": [
+        "TM3BinaryClass.base.json"
+    ],
+
+    "dry_run_wallet": 100000,
+    "max_open_trades": 10,
+
+    "exchange": {
+        "name": "binance",
+        "key": "",
+        "secret": "",
+        "ccxt_config": {
+            "enableRateLimit": true,
+            "defaultType": "futures"
+        },
+        "ccxt_async_config": {
+            "enableRateLimit": true,
+            "rateLimit": 200
+        },
+        "pair_whitelist": [
+            "BTC/USDT:USDT",
+            "ETH/USDT:USDT",
+            "BNB/USDT:USDT",
+            "ADA/USDT:USDT",
+            "SOL/USDT:USDT",
+            "XRP/USDT:USDT",
+            "AVAX/USDT:USDT",
+            "DOGE/USDT:USDT",
+            "DOT/USDT:USDT",
+            "MATIC/USDT:USDT"
+        ],
+        "pair_blacklist": []
+    },
+
+    "timeframe": "1h",
+
+    "sagemaster": {
+        "CATBOOST_SELECT_FEATURES_ITERATIONS": 1000,
+        "CATBOOST_NUM_FEATURES_TO_SELECT": 2213,
+        "CATBOOST_SELECT_FEATURES_STEPS": 100,
+        "CATBOOST_AUTODETECT_NUM_FEATURES_TO_SELECT": false,
+
+        "PREDICT_STORAGE_ENABLED": true,
+        "PREDICT_STORAGE_CONN_STRING": "mssql+pyodbc://mastergpt:gptMas12!@mastergpt.database.windows.net/mastergpt?driver=ODBC+Driver+18+for+SQL+Server"
+    },
+
+    "freqai": {
+        "train_period_days": 100,
+        "backtest_period_days": 1,
+        "label_period_candles": 6,
+        "identifier": "TM3_1503",
+        "data_kitchen_thread_count": 20,
+        "feature_parameters" : {
+            "target_slope_filter": 0,
+
+            "include_timeframes": [
+                "4h", "1d"
+            ]
+        },
+        "data_split_parameters" : {
+            "test_size": 0.12
+        },
+        "model_training_parameters": {
+            "n_estimators": 3000,
+            "thread_count": 20,
+            "logging_level": "Silent"
+        }
+    },
+    "api_server": {
+        "enabled": true,
+        "listen_ip_address": "37.27.68.52",
+        "listen_port": 8888,
+        "verbosity": "error",
+        "enable_openapi": false,
+        "jwt_secret_key": "showmethemoney",
+        "CORS_origins": [],
+        "username": "tm3producer",
+        "password": "GameOver42",
+        "ws_token": "Rd4DRwjAkQV77slBC-FIK_Ac3inRUysOfw"
+    }
+}

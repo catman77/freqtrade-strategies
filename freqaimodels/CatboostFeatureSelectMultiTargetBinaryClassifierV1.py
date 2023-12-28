@@ -22,6 +22,7 @@ from sklearn.preprocessing import RobustScaler, StandardScaler
 import datasieve.transforms as ds
 import wandb
 from freqaimodels.MultiOutputClassifierWithFeatureSelect import MultiOutputClassifierWithFeatureSelect
+from sklearn.metrics import roc_auc_score, f1_score, log_loss, balanced_accuracy_score
 
 
 logger = logging.getLogger(__name__)
@@ -62,12 +63,16 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
         return self.config["sagemaster"].get("CATBOOST_FEATURE_SELECT_LABEL", "&-trend_long")
 
     @property
+    def WANDB_PROJECT(self):
+        return self.config["sagemaster"].get("WANDB_PROJECT", "TM3")
+
+    @property
     def MODEL_IDENTIFIER(self):
         return self.config["freqai"].get("identifier", "default")
 
     @property
     def THREAD_COUNT(self):
-        return self.config["freqai"]['model_training_parameters'].get("THREAD_COUNT", 4)
+        return self.config["freqai"]['model_training_parameters'].get("thread_count", 4)
 
     def wandb_init(self, project:str = "TM3", name: str = None, job_type: str = None, config: Dict = None):
         # wandb.login(key=["ca8202923f1f937fac88fd39668ab6c97ec7d808"])
@@ -108,7 +113,8 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
                     # weight=data_dictionary["test_weights"],
                 )
 
-        self.wandb_init(name=f"{self.MODEL_IDENTIFIER}_{dk.pair}.fit",
+        self.wandb_init(project=self.WANDB_PROJECT,
+                        name=f"{self.MODEL_IDENTIFIER}_{dk.pair}.fit",
                         job_type="fit",
                         config=self.model_training_parameters)
 
@@ -131,8 +137,42 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
         multi_model = MultiOutputClassifierWithFeatureSelect(estimator=estimator)
         multi_model.fit(X=X, y=y, sample_weight=data_dictionary["train_weights"], selected_features_all_labels=selected_features_all_labels, fit_params=fit_params)
 
-        # for i, estim in enumerate(multi_model.estimators_):
-            # wandb.catboost.plot_feature_importances(estim, labels[i])
+        # Calculate and export evaluation metrics
+        for i, label in enumerate(data_dictionary['test_labels'].columns):
+            _estimator = multi_model.estimators_[i]
+            y_true = data_dictionary["test_labels"][label]
+            y_pred = _estimator.predict(data_dictionary["test_features"][selected_features_all_labels[label]])
+            y_pred_proba = _estimator.predict_proba(data_dictionary["test_features"][selected_features_all_labels[label]])[:, 1]
+
+            # Dynamically determine the positive label
+            unique_labels = y_true.unique()
+            positive_label = unique_labels[0]  # First unique label as positive
+
+            y_pred_proba_2d = np.vstack((1 - y_pred_proba, y_pred_proba)).T
+
+            # Log ROC Curve
+            wandb.log({f"{label}_roc_curve": wandb.plot.roc_curve(y_true, y_pred_proba_2d, title='ROC for ' + label, labels=None, classes_to_plot=None)})
+
+            # Log Precision-Recall Curve
+            wandb.log({f"{label}_pr_curve": wandb.plot.pr_curve(y_true, y_pred_proba_2d, title='Precision/Recall for ' + label, labels=None, classes_to_plot=None)})
+
+            # Log Confusion Matrix
+            class_names = ['true', 'not_true']
+            # Ensure class labels are strings
+            y_true_str = y_true.astype(str)
+            # Map y_true to string labels based on class names
+            y_true_mapped = y_true_str.map({str(i): class_name for i, class_name in enumerate(class_names)})
+
+            # Your existing code for the confusion matrix
+            wandb.log({f"{label}_confusion_matrix": wandb.plot.confusion_matrix(probs=y_pred_proba_2d, y_true=y_true_mapped)})
+
+            dk.data['extra_returns_per_train'][f'{label}_roc_auc'] = roc_auc_score(y_true, y_pred_proba)
+            dk.data['extra_returns_per_train'][f'{label}_f1'] = f1_score(y_true, y_pred, pos_label=positive_label)
+            dk.data['extra_returns_per_train'][f'{label}_logloss'] = log_loss(y_true, y_pred_proba)
+            dk.data['extra_returns_per_train'][f'{label}_accuracy'] = balanced_accuracy_score(y_true, y_pred)
+
+        # log metrics to wandb
+        wandb.log(dk.data['extra_returns_per_train'])
 
         wandb.finish()
 
@@ -156,21 +196,20 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
             "thread_count": self.THREAD_COUNT,
         }
 
-        selected_features_all_labels = {}
-        for label in data_dictionary["train_labels"].columns:
-            log(f'Selecting features for label = {label}')
-
-            self.wandb_init(name=f"{self.MODEL_IDENTIFIER}_{dk.pair}.feature_select[{label}]",
+        self.wandb_init(name=f"{self.MODEL_IDENTIFIER}_{dk.pair}.feature_select",
                 job_type="feature_select",
                 config={
                     "SELECT_FEATURES_ITERATIONS": self.SELECT_FEATURES_ITERATIONS,
                     "NUM_FEATURES_TO_SELECT": self.NUM_FEATURES_TO_SELECT,
                     "SELECT_FEATURES_STEPS": self.SELECT_FEATURES_STEPS,
                     "AUTODETECT_NUM_FEATURES_TO_SELECT": self.AUTODETECT_NUM_FEATURES_TO_SELECT,
-                    "FEATURE_SELECT_LABEL": self.FEATURE_SELECT_LABEL,
                     "MODEL_IDENTIFIER": self.MODEL_IDENTIFIER,
                     # **select_model_config
                     })
+
+        selected_features_all_labels = {}
+        for label in data_dictionary["train_labels"].columns:
+            log(f'Selecting features for label = {label}')
 
             # transform and prepare data
             x_train = data_dictionary["train_features"].copy().rename(columns=lambda x: x.replace('-', ':'))
@@ -220,21 +259,21 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
                 loss_table = wandb.Table(dataframe=loss_graph)
 
                 # Log the table to wandb
-                wandb.log({"Loss Graph": loss_table})
-                wandb.log({"Optimal Features": optimal_features, "Minimum Loss Value": min_loss_value, "Final Loss Value": final_loss_value})
+                wandb.log({f"{label}_loss_graph": loss_table})
+                wandb.log({f"{label}_optimal_features_count": optimal_features, f"{label}_optimal_Loss_value": min_loss_value, f"{label}_final_loss_value": final_loss_value})
 
                 # Convert selected and eliminated features to wandb.Table
-                selected_features_table = wandb.Table(data=[best_f['selected_features_names']], columns=["Selected Features"])
-                eliminated_features_table = wandb.Table(data=[best_f['eliminated_features_names']], columns=["Eliminated Features"])
+                # selected_features_table = wandb.Table(data=[best_f['selected_features_names']], columns=["Selected Features"])
+                # eliminated_features_table = wandb.Table(data=[best_f['eliminated_features_names']], columns=["Eliminated Features"])
 
                 # Log the tables to wandb
-                wandb.log({"Selected Features": selected_features_table, "Eliminated Features": eliminated_features_table})
+                # wandb.log({"Selected Features": selected_features_table, "Eliminated Features": eliminated_features_table})
             except:
                 pass
 
             selected_features_all_labels[label] = [x.replace(':', '-') for x in best_f['selected_features_names']]
 
-            wandb.finish()
+        wandb.finish()
 
         return selected_features_all_labels
 
