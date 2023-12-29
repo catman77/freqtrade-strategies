@@ -58,6 +58,16 @@ freqtrade backtesting \
 ```
 
 
+TM3Consumer
+```sh
+freqtrade trade \
+	--config user_data/configs/TM3Consumer.dev.json \
+	--strategy TM3Consumer \
+	--logfile user_data/logs/TM3Consumer.dev.log \
+	--db-url sqlite:///user_data/db/TM3Consumer.dev.sqlite
+```
+
+
 freqtrade download-data --timerange "20231101-" -t 1h 4h 12h 1d -p ADA/USDT:USDT BTC/USDT:USDT --exchange binance
 freqtrade  download-data --exchange binance --pairs BTC/USDT:USDT ADA/USDT:USDT --trading-mode futures --timerange 20230101- -t 1h 4h 6h 12h 1d
 

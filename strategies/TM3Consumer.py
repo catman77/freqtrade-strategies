@@ -38,7 +38,7 @@ from freqtrade.strategy.parameters import BooleanParameter, DecimalParameter, In
 from datetime import timedelta, datetime, timezone
 from freqtrade.optimize.space import Categorical, Dimension, Integer, SKDecimal
 import talib.abstract as ta
-from sqlalchemy import desc
+from sqlalchemy import column, desc
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from scipy.signal import argrelextrema
 from joblib import Parallel, delayed
@@ -93,49 +93,35 @@ class TM3Consumer(IStrategy):
         plot_config = {
             "main_plot": {},
             "subplots": {
-                "real": {
-                    "L1": {
-                        "color": "#616161",
-                        "type": "line"
-                    },
-                    "L-1": {
-                        "color": "#575757",
-                        "type": "line"
-                    },
-                    "ohlc4_log6_exp_slope": {
-                        "color": "#73da2b"
-                    }
-                    },
                 "trend": {
-                    "trend_long": {
-                        "color": "#49ee5c",
-                        "type": "line"
-                    },
-                    "trend_short": {
-                        "color": "#e36cc7",
-                        "type": "line"
-                    },
-                    "do_predict": {
-                        "color": "#116417",
+                    "do_predict_tm3_1h": {
+                        "color": "#102c42",
                         "type": "bar"
-                    }
+                        },
+                    "trend_long_tm3_1h": {
+                        "color": "#2db936",
+                        "type": "line"
+                        },
+                    "trend_short_tm3_1h": {
+                        "color": "#f40b5d",
+                        "type": "line"
+                        }
                     },
                 "extrema": {
-                    "maxima": {
-                        "color": "#b719c2",
-                        "type": "line"
-                    },
-                    "minima": {
-                        "color": "#1fe07c",
-                        "type": "line"
-                    },
-                    "do_predict": {
-                        "color": "#116417",
+                    "do_predict_tm3_1h": {
+                        "color": "#102c42",
                         "type": "bar"
-                    }
+                        },
+                    "maxima_tm3_1h": {
+                        "color": "#f40b5d",
+                        "type": "line"
+                        },
+                    "minima_tm3_1h": {
+                        "color": "#2db936"
+                        }
                     }
                 }
-        }
+            }
 
     minimal_roi = {
         "0": 0.13
@@ -176,22 +162,22 @@ class TM3Consumer(IStrategy):
         'trend_short',
         'trend_strength',
         'trend_strength_abs',
-        'trend_long_roc_auc',
-        'trend_long_f1',
-        'trend_long_logloss',
-        'trend_long_accuracy',
-        'trend_short_roc_auc',
-        'trend_short_f1',
-        'trend_short_logloss',
-        'trend_short_accuracy',
-        'extrema_maxima_roc_auc',
-        'extrema_maxima_f1',
-        'extrema_maxima_logloss',
-        'extrema_maxima_accuracy',
-        'extrema_minima_roc_auc',
-        'extrema_minima_f1',
-        'extrema_minima_logloss',
-        'extrema_minima_accuracy'
+        '&-trend_long_roc_auc',
+        '&-trend_long_f1',
+        '&-trend_long_logloss',
+        '&-trend_long_accuracy',
+        '&-trend_short_roc_auc',
+        '&-trend_short_f1',
+        '&-trend_short_logloss',
+        '&-trend_short_accuracy',
+        '&-extrema_maxima_roc_auc',
+        '&-extrema_maxima_f1',
+        '&-extrema_maxima_logloss',
+        '&-extrema_maxima_accuracy',
+        '&-extrema_minima_roc_auc',
+        '&-extrema_minima_f1',
+        '&-extrema_minima_logloss',
+        '&-extrema_minima_accuracy'
     ]
 
     def populate_indicators(self, df: DataFrame, metadata: dict) -> DataFrame:
@@ -201,40 +187,30 @@ class TM3Consumer(IStrategy):
         pair = metadata['pair']
         timeframe = self.timeframe
 
-        producer_pairs = self.dp.get_producer_pairs()
-        # You can specify which producer to get pairs from via:
-        # self.dp.get_producer_pairs("my_other_producer")
+        producer_pairs = self.dp.get_producer_pairs(producer_name="tm3_1h")
 
         # This func returns the analyzed dataframe, and when it was analyzed
-        producer_dataframe, _ = self.dp.get_producer_df(pair)
-        # You can get other data if the producer makes it available:
-        # self.dp.get_producer_df(
-        #   pair,
-        #   timeframe="1h",
-        #   candle_type=CandleType.SPOT,
-        #   producer_name="my_other_producer"
-        # )
-        print("producer dataframe")
-        print(producer_dataframe)
+        producer_dataframe, _ = self.dp.get_producer_df(pair, timeframe, producer_name="tm3_1h")
 
         if not producer_dataframe.empty:
+            print("producer dataframe")
+            producer_dataframe = producer_dataframe[self._columns_to_expect + ['date']].copy()
+            print(producer_dataframe)
             # If you plan on passing the producer's entry/exit signal directly,
             # specify ffill=False or it will have unintended results
-            merged_dataframe = merge_informative_pair(df, producer_dataframe,
+            df = merge_informative_pair(df, producer_dataframe,
                                                       timeframe, timeframe,
                                                       append_timeframe=False,
-                                                      suffix="default")
-            return merged_dataframe
+                                                      suffix="tm3_1h")
         else:
-            df[self._columns_to_expect] = 0
+            columns_to_expect_suffix = [col + "_tm3_1h" for col in self._columns_to_expect]
+            df[columns_to_expect_suffix] = 0
 
 
         last_candle = df.iloc[-1].squeeze()
-        print("last candle")
-        print(last_candle)
-
-        return df
-
+        if not producer_dataframe.empty:
+            print("last candle")
+            print(last_candle)
 
         # self.dp.send_msg(f"{metadata['pair']} predictions: \n  minima={last_candle['minima']:.2f}, \n  maxima={last_candle['maxima']:.2f}, \n  trend long={last_candle['trend_long']:.2f}, \n  trend short={last_candle['trend_short']:.2f}, \n  trend strength={last_candle['trend_strength']:.2f}")
 
@@ -242,36 +218,37 @@ class TM3Consumer(IStrategy):
         self.log(f"EXIT populate_indicators {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
         return df
 
-    def protection_di(self, df: DataFrame):
-        return (df["DI_values"] < df["DI_cutoff"])
-
     def signal_entry_long(self, df: DataFrame):
-        minima_condition1 = qtpylib.crossed_below(df['minima'], 0.8) & (df['trend_short'] < 0.6) # minima reached and trend is not short
-        minima_condition2 = qtpylib.crossed_above(df['minima'], 0.9) & (df['trend_short'] < 0.7)
+        general_condition = df['do_predict_tm3_1h'] == 1
+        minima_condition1 = qtpylib.crossed_below(df['minima_tm3_1h'], 0.8) & (df['trend_short_tm3_1h'] < 0.6) # minima reached and trend is not short
+        minima_condition2 = qtpylib.crossed_above(df['minima_tm3_1h'], 0.9) & (df['trend_short_tm3_1h'] < 0.7)
         # trend_condition = (df['trend_long'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['maxima'] < 0.5) # trend is long and maxima is not reached
         # return minima_condition | trend_condition
-        return minima_condition1 | minima_condition2
+        return general_condition & (minima_condition1 | minima_condition2)
 
     def signal_exit_long(self, df: DataFrame):
-        maxima_condition = df['maxima'] >= 0.8
+        general_condition = df['do_predict_tm3_1h'] == 1
+        maxima_condition = df['maxima_tm3_1h'] >= 0.8
         # trend_condition = df['trend_long'] >= 0.9
         # return minima_condition | trend_condition
-        return maxima_condition
+        return general_condition & maxima_condition
 
 
     def signal_entry_short(self, df: DataFrame):
-        maxima_condition1 = qtpylib.crossed_below(df['maxima'], 0.8) & (df['trend_long'] < 0.6) # maxima reached and trend is not long
-        maxima_condition2 = qtpylib.crossed_above(df['maxima'], 0.9) & (df['trend_long'] < 0.7)
+        general_condition = df['do_predict_tm3_1h'] == 1
+        maxima_condition1 = qtpylib.crossed_below(df['maxima_tm3_1h'], 0.8) & (df['trend_long_tm3_1h'] < 0.6) # maxima reached and trend is not long
+        maxima_condition2 = qtpylib.crossed_above(df['maxima_tm3_1h'], 0.9) & (df['trend_long_tm3_1h'] < 0.7)
         # trend_condition = (df['trend_short'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['minima'] < 0.5) # trend is short and minima is not reached
 
         # return maxima_condition | trend_condition
-        return maxima_condition1 | maxima_condition2
+        return general_condition & (maxima_condition1 | maxima_condition2)
 
     def signal_exit_short(self, df: DataFrame):
-        maxima_condition = df['minima'] >= 0.8
+        general_condition = df['do_predict_tm3_1h'] == 1
+        maxima_condition = df['minima_tm3_1h'] >= 0.8
         # trend_condition = df['trend_long'] >= 0.9
         # return minima_condition | trend_condition
-        return maxima_condition
+        return general_condition & maxima_condition
 
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
@@ -310,16 +287,16 @@ class TM3Consumer(IStrategy):
         if roi_result:
             return roi_result
 
-        if trade.is_open and is_long and last_candle['maxima'] >= 0.6 and is_profitable:
+        if trade.is_open and is_long and last_candle['maxima_tm3_1h'] >= 0.6 and is_profitable:
             return "almost_maxima"
 
-        if trade.is_open and is_long and last_candle['trend_short'] >= 0.7 and is_profitable:
+        if trade.is_open and is_long and last_candle['trend_short_tm3_1h'] >= 0.7 and is_profitable:
             return "trend_reserse_to_short"
 
-        if trade.is_open and is_short and last_candle['minima'] >= 0.6 and is_profitable:
+        if trade.is_open and is_short and last_candle['minima_tm3_1h'] >= 0.6 and is_profitable:
             return "almost_minima"
 
-        if trade.is_open and is_short and last_candle['trend_long'] >= 0.7 and is_profitable:
+        if trade.is_open and is_short and last_candle['trend_long_tm3_1h'] >= 0.7 and is_profitable:
             return "trend_reserse_to_long"
 
 
