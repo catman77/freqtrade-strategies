@@ -1,14 +1,14 @@
 {
     "trading_mode": "futures",
     "margin_mode": "isolated",
-    "max_open_trades": 1,
+    "max_open_trades": 10,
     "stake_currency": "USDT",
     "stake_amount": "unlimited",
     "tradable_balance_ratio": 1,
     "fiat_display_currency": "USD",
     "dry_run": true,
     "timeframe": "1h",
-    "dry_run_wallet": 1000,
+    "dry_run_wallet": 10000,
     "amend_last_stake_amount": true,
     "cancel_open_orders_on_exit": true,
     "exchange": {
@@ -106,8 +106,8 @@
     },
 
     "telegram": {
-        "enabled": false,
-        "token": "6003552464:AAHVHcUwAxo3Yy-OAIHLi4LayPzhsWTPa60",
+        "enabled": true,
+        "token": "6784209639:AAHaELP7AXRwT96gMnbngMCl84Sz3QQxDXQ",
         "chat_id": "47319110",
         "allow_custom_messages": true,
         "notification_settings": {
