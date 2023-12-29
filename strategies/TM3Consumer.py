@@ -193,9 +193,9 @@ class TM3Consumer(IStrategy):
         producer_dataframe, _ = self.dp.get_producer_df(pair, timeframe, producer_name="tm3_1h")
 
         if not producer_dataframe.empty:
-            print("producer dataframe")
+            # print("producer dataframe")
             producer_dataframe = producer_dataframe[self._columns_to_expect + ['date']].copy()
-            print(producer_dataframe)
+            # print(producer_dataframe)
             # If you plan on passing the producer's entry/exit signal directly,
             # specify ffill=False or it will have unintended results
             df = merge_informative_pair(df, producer_dataframe,
@@ -208,11 +208,11 @@ class TM3Consumer(IStrategy):
 
 
         last_candle = df.iloc[-1].squeeze()
-        if not producer_dataframe.empty:
-            print("last candle")
-            print(last_candle)
+        # if not producer_dataframe.empty:
+            # print("last candle")
+            # print(last_candle)
 
-        # self.dp.send_msg(f"{metadata['pair']} predictions: \n  minima={last_candle['minima']:.2f}, \n  maxima={last_candle['maxima']:.2f}, \n  trend long={last_candle['trend_long']:.2f}, \n  trend short={last_candle['trend_short']:.2f}, \n  trend strength={last_candle['trend_strength']:.2f}")
+        self.dp.send_msg(f"{metadata['pair']} predictions: \n  minima={last_candle['minima_tm3_1h']:.2f}, \n  maxima={last_candle['maxima_tm3_1h']:.2f}, \n  trend long={last_candle['trend_long_tm3_1h']:.2f}, \n  trend short={last_candle['trend_short_tm3_1h']:.2f}, \n  trend strength={last_candle['trend_strength_tm3_1h']:.2f}")
 
 
         self.log(f"EXIT populate_indicators {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
