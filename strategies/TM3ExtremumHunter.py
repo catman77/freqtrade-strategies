@@ -34,15 +34,16 @@ from freqtrade.persistence.trade_model import Trade
 from freqtrade.strategy import IStrategy
 from freqtrade.strategy.parameters import BooleanParameter, DecimalParameter, IntParameter
 from datetime import timedelta, datetime, timezone
-import multiprocessing as mp
 from freqtrade.optimize.space import Categorical, Dimension, Integer, SKDecimal
 import talib.abstract as ta
 from sqlalchemy import desc
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from scipy.signal import argrelextrema
+from joblib import Parallel, delayed
 
 from technical import qtpylib
 import pandas_ta as pta
+from freqtrade.exchange import timeframe_to_minutes
 
 logger = logging.getLogger(__name__)
 
@@ -217,15 +218,14 @@ class TM3ExtremumHunter(IStrategy):
     minimal_roi = { "0": 0.07 }
 
     TARGET_VAR = "ohlc4_log"
-    DEBUG = False
 
     process_only_new_candles = True
     use_exit_signal = True
     can_short = True
     ignore_roi_if_entry_signal = True
 
-    stoploss = -0.016
-    trailing_stop = False
+    stoploss = -0.012
+    trailing_stop = True
     trailing_only_offset_is_reached  = False
     trailing_stop_positive_offset = 0
 
@@ -266,35 +266,30 @@ class TM3ExtremumHunter(IStrategy):
     def PREDICT_TARGET(self):
         return self.config["freqai"].get("label_period_candles", 6)
 
-    # @property
-    # def protections(self):
-    #     return [
-    #         {
-    #             "method": "StoplossGuard",
-    #             "lookback_period_candles": 6,
-    #             "trade_limit": 2,
-    #             "stop_duration_candles": 12,
-    #             "required_profit": 0.0,
-    #             "only_per_pair": True,
-    #             "only_per_side": True
-    #         }
-    #     ]
+    @property
+    def PREDICT_STORAGE_ENABLED(self):
+        return self.config["sagemaster"].get("PREDICT_STORAGE_ENABLED")
+
+    @property
+    def PREDICT_STORAGE_CONN_STRING(self):
+        return self.config["sagemaster"].get("PREDICT_STORAGE_CONN_STRING")
+
+
+    @property
+    def TARGET_EXTREMA_KERNEL(self):
+        return self.config["sagemaster"].get('TARGET_EXTREMA_KERNEL', 24)
+
+    @property
+    def TARGET_EXTREMA_WINDOW(self):
+        return self.config["sagemaster"].get('TARGET_EXTREMA_WINDOW', 5)
 
     def bot_start(self, **kwargs) -> None:
         print("bot_start")
-
-        self.DEBUG = self.config["sagemaster"].get("debug", False)
-
-
-    def new_pool(self):
-        return mp.Pool(self.config["freqai"].get("data_kitchen_thread_count", 4))
 
 
     def feature_engineering_trend(self, df: DataFrame, metadata, **kwargs):
         self.log(f"ENTER .feature_engineering_trend() {metadata} {df.shape}")
         start_time = time.time()
-
-        the_pool = self.new_pool()
 
         # Trends for indicators
         all_cols = filter(lambda col:
@@ -322,22 +317,18 @@ class TM3ExtremumHunter(IStrategy):
         results = []
         result_cols = []
         # launch all processes
-        for col in all_cols:
-            result = the_pool.apply_async(helpers.create_col_trend, (col, self.PREDICT_TARGET, df, "polyfit"))
-            results.append(result)
+        # Use Parallel and delayed for multiprocessing
+        result_cols = Parallel(n_jobs=self.config["freqai"].get("data_kitchen_thread_count", 4))(
+            delayed(helpers.create_col_trend)(col, self.PREDICT_TARGET, df, "polyfit") for col in all_cols
+        )
 
-        # collect all results
-        for result in results:
-            result_cols.append(result.get())
-
-        # rename result_cols and append %- to the name
-        result_df = pd.concat([*result_cols], axis=1)
+        # Combine results
+        result_df = pd.concat(result_cols, axis=1)
         result_df.columns = ["%-"+x for x in result_df.columns]
 
         df = pd.concat([df, result_df], axis=1)
 
         self.log(f"EXIT .feature_engineering_trend() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
-        the_pool.close()
 
         return df
 
@@ -457,7 +448,7 @@ class TM3ExtremumHunter(IStrategy):
         start_time = time.time()
 
         df = candle_stats(df)
-        kernel = self.freqai_info["label_period_candles"]
+
 
         # # target: trend slope
         # df.set_index(df['date'], inplace=True)
@@ -485,11 +476,11 @@ class TM3ExtremumHunter(IStrategy):
         df['extrema'] = 0
         min_peaks = argrelextrema(
             df["low_log"].values, np.less,
-            order=kernel
+            order=self.TARGET_EXTREMA_KERNEL
         )
         max_peaks = argrelextrema(
             df["high_log"].values, np.greater,
-            order=kernel
+            order=self.TARGET_EXTREMA_KERNEL
         )
 
         print(f"min_peaks: {len(min_peaks[0])}, max_peaks: {len(max_peaks[0])}")
@@ -500,7 +491,7 @@ class TM3ExtremumHunter(IStrategy):
             df.at[mp, "extrema"] = 1
 
         df['extrema'] = df['extrema'].rolling(
-            window=5, win_type='gaussian', center=True).mean(std=0.5)
+            window=self.TARGET_EXTREMA_WINDOW, win_type='gaussian', center=True).mean(std=0.5)
 
         # print(df['extrema'].value_counts())
 
@@ -557,9 +548,6 @@ class TM3ExtremumHunter(IStrategy):
         # add slope indicators
         df = self.add_slope_indicator(df, 'ohlc4_log', self.PREDICT_TARGET)
 
-        # super short term indicator
-        df = self.add_slope_indicator(df, 'ohlc4_log', 3)
-
         df['L1'] = 1.0
         df['L0'] = 0
         df['L-1'] = -1.0
@@ -578,17 +566,31 @@ class TM3ExtremumHunter(IStrategy):
         return (df["DI_values"] < df["DI_cutoff"])
 
     def signal_entry_long(self, df: DataFrame):
-        minima_condition = (df['minima'] >= 0.82) # minima reached and trend is not short
+        minima_condition1 = qtpylib.crossed_below(df['minima'], 0.8) & (df['maxima'] < 0.6)
+        minima_condition2 = qtpylib.crossed_above(df['minima'], 0.9) & (df['maxima'] < 0.6)
         # trend_condition = (df['trend_long'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['maxima'] < 0.5) # trend is long and maxima is not reached
         # return minima_condition | trend_condition
-        return minima_condition
+        return minima_condition1 | minima_condition2
+
+    def signal_exit_long(self, df: DataFrame):
+        maxima_condition = df['maxima'] >= 0.8
+        # trend_condition = df['trend_long'] >= 0.9
+        # return minima_condition | trend_condition
+        return maxima_condition
 
 
     def signal_entry_short(self, df: DataFrame):
-        maxima_condition = (df['maxima'] >= 0.82) # maxima reached and trend is not long
+        maxima_condition1 = qtpylib.crossed_below(df['maxima'], 0.8) & (df['minima'] < 0.6)
+        maxima_condition2 = qtpylib.crossed_above(df['maxima'], 0.9) & (df['minima'] < 0.6)
         # trend_condition = (df['trend_short'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['minima'] < 0.5) # trend is short and minima is not reached
 
         # return maxima_condition | trend_condition
+        return maxima_condition1 | maxima_condition2
+
+    def signal_exit_short(self, df: DataFrame):
+        maxima_condition = df['minima'] >= 0.8
+        # trend_condition = df['trend_long'] >= 0.9
+        # return minima_condition | trend_condition
         return maxima_condition
 
 
@@ -602,9 +604,9 @@ class TM3ExtremumHunter(IStrategy):
 
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
 
-        df.loc[self.signal_entry_short(df), 'exit_long'] = 1
+        df.loc[self.signal_exit_long(df), 'exit_long'] = 1
 
-        df.loc[self.signal_entry_long(df), 'exit_short'] = 1
+        df.loc[self.signal_exit_short(df), 'exit_short'] = 1
 
         return df
 
@@ -613,33 +615,109 @@ class TM3ExtremumHunter(IStrategy):
                     current_profit: float, **kwargs):
         df, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
 
-        print(df.tail(3))
         if df.empty:
             # Handle the empty DataFrame case
             return None  # Or other appropriate handling
 
         last_candle = df.iloc[-1].squeeze()
 
-        print(last_candle)
-
         trade_duration = (current_time - trade.open_date_utc).seconds / 60
         is_short = trade.is_short == True
         is_long = trade.is_short == False
         is_profitable = current_profit > 0
 
+        roi_result = self.check_roi(pair, current_time, trade.open_date_utc, current_profit)
+        if roi_result:
+            return roi_result
 
         if trade.is_open and is_long and last_candle['maxima'] >= 0.6 and is_profitable:
-            return "maxima_reached"
-
-        # if trade.is_open and is_long and last_candle['trend_short'] >= 0.7 and is_profitable:
-            # return "trend_reserse_to_short"
+            return "almost_maxima"
 
         if trade.is_open and is_short and last_candle['minima'] >= 0.6 and is_profitable:
-            return "minima_reached"
+            return "almost_minima"
 
-        # if trade.is_open and is_short and last_candle['trend_long'] >= 0.7 and is_profitable:
-            # return "trend_reserse_to_long"
 
+    ####
+    # Dynamic ROI
+    cached_roi_tables = {}
+
+    def get_or_create_roi_table(self, pair, kernel=6):
+        # Check cache first
+        if pair in self.cached_roi_tables:
+            return self.cached_roi_tables[pair]
+
+        # Get analyzed dataframe
+        df, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+        if df.empty:
+            return None
+
+        # Analyze candles to create ROI table
+        min_peaks = argrelextrema(df["low"].values, np.less, order=kernel)[0]
+        max_peaks = argrelextrema(df["high"].values, np.greater, order=kernel)[0]
+
+        # Prepare lists for data
+        distances = []
+        candles_between_peaks = []
+
+        # Iterate over low peaks to find the next high peak
+        for low_peak in min_peaks:
+            next_high_peaks = max_peaks[max_peaks > low_peak]
+            if next_high_peaks.size > 0:
+                high_peak = next_high_peaks[0]
+                low_price = df.at[low_peak, 'close']
+                high_price = df.at[high_peak, 'close']
+                distance_percentage = ((high_price - low_price) / low_price)
+                distances.append(distance_percentage)
+                num_candles = high_peak - low_peak
+                candles_between_peaks.append(num_candles)
+
+        # Iterate over high peaks to find the next low peak
+        for high_peak in max_peaks:
+            next_low_peaks = min_peaks[min_peaks > high_peak]
+            if next_low_peaks.size > 0:
+                low_peak = next_low_peaks[0]
+                high_price = df.at[high_peak, 'close']
+                low_price = df.at[low_peak, 'close']
+                distance_percentage = -((low_price - high_price) / high_price)
+                distances.append(distance_percentage)
+                num_candles = low_peak - high_peak
+                candles_between_peaks.append(num_candles)
+
+        if not distances or not candles_between_peaks:
+            return None
+
+        distances_description = pd.Series(distances).describe()
+        candles_between_peaks_description = pd.Series(candles_between_peaks).describe()
+
+        # Creating dynamic ROI table using calculated statistics
+        minutes = timeframe_to_minutes(self.timeframe)
+        dynamic_roi = {
+            "0": distances_description['75%'],
+            str(int(candles_between_peaks_description['25%'] * minutes)): distances_description['50%'],
+            str(int(candles_between_peaks_description['50%'] * minutes)): distances_description['25%'],
+            str(int(candles_between_peaks_description['75%'] * minutes)): 0.00  # Using 75th percentile for the last tier
+        }
+
+        # Cache the ROI table
+        self.cached_roi_tables[pair] = dynamic_roi
+        return dynamic_roi
+
+
+    def check_roi(self, pair, current_time, trade_open_date_utc, current_profit):
+        dynamic_roi = self.get_or_create_roi_table(pair, kernel=self.TARGET_EXTREMA_KERNEL)
+        if not dynamic_roi:
+            return None
+
+        # print("dymanic roi for pair:", pair)
+        # print(dynamic_roi)
+
+        trade_duration = (current_time - trade_open_date_utc).seconds / 60
+        for roi_time, roi_value in dynamic_roi.items():
+            if trade_duration >= int(roi_time) and current_profit >= roi_value:
+                # print(f"ROI reached: {roi_value} at {roi_time} minutes")
+                return "dynamic_roi"
+
+        return None
 
 
     # def confirm_trade_entry(self, pair: str, order_type: str, amount: float, rate: float,

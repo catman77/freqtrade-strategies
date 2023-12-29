@@ -43,7 +43,7 @@ from joblib import Parallel, delayed
 
 from technical import qtpylib
 import pandas_ta as pta
-
+from freqtrade.exchange import timeframe_to_minutes
 from lib.prediction_storage import PredictionStorage
 
 logger = logging.getLogger(__name__)
@@ -319,6 +319,7 @@ class TM3BinaryClass(IStrategy):
         df = pd.concat([df, result_df], axis=1)
 
         self.log(f"EXIT .feature_engineering_trend() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
+
         return df
 
 
@@ -610,8 +611,8 @@ class TM3BinaryClass(IStrategy):
         return (df["DI_values"] < df["DI_cutoff"])
 
     def signal_entry_long(self, df: DataFrame):
-        minima_condition1 = qtpylib.crossed_below(df['minima'], 0.8) & (df['trend_short'] < 0.6) # minima reached and trend is not short
-        minima_condition2 = qtpylib.crossed_above(df['minima'], 0.9) & (df['trend_short'] < 0.7)
+        minima_condition1 = qtpylib.crossed_below(df['minima'], 0.8) & (df['maxima'] < 0.6) & (df['trend_short'] < 0.6) # minima reached and trend is not short
+        minima_condition2 = qtpylib.crossed_above(df['minima'], 0.9) & (df['maxima'] < 0.6) & (df['trend_short'] < 0.7)
         # trend_condition = (df['trend_long'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['maxima'] < 0.5) # trend is long and maxima is not reached
         # return minima_condition | trend_condition
         return minima_condition1 | minima_condition2
@@ -624,8 +625,8 @@ class TM3BinaryClass(IStrategy):
 
 
     def signal_entry_short(self, df: DataFrame):
-        maxima_condition1 = qtpylib.crossed_below(df['maxima'], 0.8) & (df['trend_long'] < 0.6) # maxima reached and trend is not long
-        maxima_condition2 = qtpylib.crossed_above(df['maxima'], 0.9) & (df['trend_long'] < 0.7)
+        maxima_condition1 = qtpylib.crossed_below(df['maxima'], 0.8) & (df['minima'] < 0.6) & (df['trend_long'] < 0.6) # maxima reached and trend is not long
+        maxima_condition2 = qtpylib.crossed_above(df['maxima'], 0.9) & (df['minima'] < 0.6) & (df['trend_long'] < 0.7)
         # trend_condition = (df['trend_short'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['minima'] < 0.5) # trend is short and minima is not reached
 
         # return maxima_condition | trend_condition
@@ -740,11 +741,12 @@ class TM3BinaryClass(IStrategy):
         candles_between_peaks_description = pd.Series(candles_between_peaks).describe()
 
         # Creating dynamic ROI table using calculated statistics
+        minutes = timeframe_to_minutes(self.timeframe)
         dynamic_roi = {
             "0": distances_description['75%'],
-            str(int(candles_between_peaks_description['25%'] * 60)): distances_description['50%'],
-            str(int(candles_between_peaks_description['50%'] * 60)): distances_description['25%'],
-            str(int(candles_between_peaks_description['75%'] * 60)): 0.00  # Using 75th percentile for the last tier
+            str(int(candles_between_peaks_description['25%'] * minutes)): distances_description['50%'],
+            str(int(candles_between_peaks_description['50%'] * minutes)): distances_description['25%'],
+            str(int(candles_between_peaks_description['75%'] * minutes)): 0.00  # Using 75th percentile for the last tier
         }
 
         # Cache the ROI table
