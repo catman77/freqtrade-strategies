@@ -170,52 +170,38 @@ class TM3BinaryClass(IStrategy):
 
             return roi_table
 
-        plot_config = {
-            "main_plot": {},
-            "subplots": {
-                "real": {
-                    "L1": {
-                        "color": "#616161",
-                        "type": "line"
-                    },
-                    "L-1": {
-                        "color": "#575757",
-                        "type": "line"
-                    },
-                    "ohlc4_log6_exp_slope": {
-                        "color": "#73da2b"
-                    }
-                    },
-                "trend": {
-                    "trend_long": {
-                        "color": "#49ee5c",
-                        "type": "line"
-                    },
-                    "trend_short": {
-                        "color": "#e36cc7",
-                        "type": "line"
-                    },
-                    "do_predict": {
-                        "color": "#116417",
-                        "type": "bar"
-                    }
-                    },
-                "extrema": {
-                    "maxima": {
-                        "color": "#b719c2",
-                        "type": "line"
-                    },
-                    "minima": {
-                        "color": "#1fe07c",
-                        "type": "line"
-                    },
-                    "do_predict": {
-                        "color": "#116417",
-                        "type": "bar"
-                    }
-                    }
+    plot_config = {
+        "main_plot": {},
+        "subplots": {
+            "trend": {
+                "do_predict_tm3_1h": {
+                    "color": "#102c42",
+                    "type": "bar"
+                },
+                "trend_long_tm3_1h": {
+                    "color": "#2db936",
+                    "type": "line"
+                },
+                "trend_short_tm3_1h": {
+                    "color": "#f40b5d",
+                    "type": "line"
                 }
+            },
+            "extrema": {
+                "do_predict_tm3_1h": {
+                    "color": "#102c42",
+                    "type": "bar"
+                },
+                "maxima_tm3_1h": {
+                    "color": "#f40b5d",
+                    "type": "line"
+                },
+                "minima_tm3_1h": {
+                    "color": "#2db936"
+                }
+            }
         }
+    }
 
     minimal_roi = {
         "0": 0.13

@@ -197,6 +197,7 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
         }
 
         self.wandb_init(name=f"{self.MODEL_IDENTIFIER}_{dk.pair}.feature_select",
+                project=self.WANDB_PROJECT,
                 job_type="feature_select",
                 config={
                     "SELECT_FEATURES_ITERATIONS": self.SELECT_FEATURES_ITERATIONS,
