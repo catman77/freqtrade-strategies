@@ -1,0 +1,141 @@
+{
+    "trading_mode": "futures",
+    "margin_mode": "isolated",
+    "max_open_trades": 10,
+    "stake_currency": "USDT",
+    "stake_amount": "unlimited",
+    "tradable_balance_ratio": 1,
+    "fiat_display_currency": "USD",
+    "dry_run": true,
+    "timeframe": "1h",
+    "dry_run_wallet": 10000,
+    "amend_last_stake_amount": true,
+    "cancel_open_orders_on_exit": true,
+    "exchange": {
+        "name": "binance",
+        "key": "",
+        "secret": "",
+        "ccxt_config": {
+            "enableRateLimit": true,
+            "defaultType": "futures"
+        },
+        "ccxt_async_config": {
+            "enableRateLimit": true,
+            "rateLimit": 200
+        },
+        "pair_whitelist": [
+            "BTC/USDT:USDT",
+            "ETH/USDT:USDT",
+            "BNB/USDT:USDT",
+            "ADA/USDT:USDT",
+            "SOL/USDT:USDT",
+            "XRP/USDT:USDT",
+            "AVAX/USDT:USDT",
+            "DOGE/USDT:USDT",
+            "DOT/USDT:USDT",
+            "MATIC/USDT:USDT"
+        ],
+        "pair_blacklist": []
+    },
+    "order_types": {
+        "entry": "limit",
+        "exit": "limit",
+        "emergency_exit": "market",
+        "force_exit": "market",
+        "force_entry": "market",
+        "stoploss": "market",
+        "stoploss_on_exchange": true,
+        "stoploss_on_exchange_interval": 60,
+        "stoploss_on_exchange_limit_ratio": 0.99
+    },
+    "entry_pricing": {
+        "price_side": "same",
+        "use_order_book": true,
+        "order_book_top": 1
+    },
+    "exit_pricing": {
+        "price_side": "other",
+        "use_order_book": true,
+        "order_book_top": 1
+    },
+    "unfilledtimeout": {
+        "entry": 3,
+        "exit": 3
+    },
+    "pairlists": [
+        {
+            "method": "StaticPairList"
+        }
+    ],
+
+    "sagemaster": {
+    },
+
+    "bot_name": "TM3BC",
+    "force_entry_enable": true,
+    "initial_state": "running",
+    "internals": {
+        "process_throttle_secs": 30,
+        "sd_notify": true,
+        "heartbeat_interval": 60
+    },
+    "api_server": {
+        "enabled": true,
+        "listen_ip_address": "0.0.0.0",
+        "listen_port": 8888,
+        "verbosity": "error",
+        "enable_openapi": false,
+        "jwt_secret_key": "HAHAHAHA",
+        "CORS_origins": [],
+        "username": "master",
+        "password": "123456"
+    },
+
+    "external_message_consumer": {
+        "enabled": true,
+        "producers": [
+            {
+                "name": "tm3_1h",
+                "host": "37.27.68.52",
+                "port": 8888,
+                "secure": false,
+                "remove_entry_exit_signals": true,
+                "ws_token": "Rd4DRwjAkQV77slBC-FIK_Ac3inRUysOfw"
+            }
+        ]
+    },
+
+    "telegram": {
+        "enabled": true,
+        "token": "6784209639:AAHaELP7AXRwT96gMnbngMCl84Sz3QQxDXQ",
+        "chat_id": "47319110",
+        "allow_custom_messages": true,
+        "notification_settings": {
+            "status": "silent",
+            "warning": "on",
+            "startup": "silent",
+            "entry": "silent",
+            "exit": {
+                "roi": "silent",
+                "emergency_exit": "on",
+                "force_exit": "on",
+                "exit_signal": "silent",
+                "trailing_stop_loss": "on",
+                "stop_loss": "on",
+                "stoploss_on_exchange": "on",
+                "custom_exit": "silent",
+                "partial_exit": "on"
+            },
+            "entry_cancel": "silent",
+            "exit_cancel": "on",
+            "entry_fill": "off",
+            "exit_fill": "off",
+            "protection_trigger": "on",
+            "protection_trigger_global": "on",
+            "strategy_msg": "silent",
+            "show_candle": "ohlc"
+        },
+        "reload": true,
+        "balance_dust_level": 0.01
+    }
+}
