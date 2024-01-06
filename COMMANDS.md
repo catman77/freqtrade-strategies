@@ -37,6 +37,14 @@ freqtrade trade \
 	--strategy TM3BinaryClass \
 	--logfile user_data/logs/TM3BinaryClass.test.log \
 	--db-url sqlite:///user_data/db/TM3BinaryClass.test.sqlite
+
+
+freqtrade trade \
+	--config user_data/configs/TM3BinaryClass.dryD.json \
+	--freqaimodel CatboostFeatureSelectMultiTargetBinaryClassifierV1 \
+	--strategy TM3BinaryClassV2 \
+	--logfile user_data/logs/TM3BinaryClass.dryD.log \
+	--db-url sqlite:///user_data/db/TM3BinaryClass.dryD.sqlite
 ```
 
 ```sh
