@@ -744,8 +744,8 @@ class TM3BinaryClass(IStrategy):
         minutes = timeframe_to_minutes(self.timeframe)
         dynamic_roi = {
             "0": distances_description['75%'],
-            str(int(candles_between_peaks_description['25%'] * minutes)): distances_description['50%'],
-            str(int(candles_between_peaks_description['50%'] * minutes)): distances_description['25%'],
+            # str(int(candles_between_peaks_description['25%'] * minutes)): distances_description['50%'],
+            # str(int(candles_between_peaks_description['50%'] * minutes)): distances_description['25%'],
             str(int(candles_between_peaks_description['75%'] * minutes)): 0.00  # Using 75th percentile for the last tier
         }
 
