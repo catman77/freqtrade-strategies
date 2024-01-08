@@ -23,6 +23,7 @@ import datasieve.transforms as ds
 import wandb
 from freqaimodels.MultiOutputClassifierWithFeatureSelect import MultiOutputClassifierWithFeatureSelect
 from sklearn.metrics import roc_auc_score, f1_score, log_loss, balanced_accuracy_score
+import pickle
 
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,8 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
 
             # Dynamically determine the positive label
             unique_labels = y_true.unique()
-            positive_label = unique_labels[0]  # First unique label as positive
+            positive_label = next(label for label in unique_labels if "not" not in label.lower())
+            negative_label = next(label for label in unique_labels if "not" in label.lower())
 
             y_pred_proba_2d = np.vstack((1 - y_pred_proba, y_pred_proba)).T
 
@@ -157,14 +159,13 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
             wandb.log({f"{label}_pr_curve": wandb.plot.pr_curve(y_true, y_pred_proba_2d, title='Precision/Recall for ' + label, labels=None, classes_to_plot=None)})
 
             # Log Confusion Matrix
-            class_names = ['true', 'not_true']
-            # Ensure class labels are strings
-            y_true_str = y_true.astype(str)
-            # Map y_true to string labels based on class names
-            y_true_mapped = y_true_str.map({str(i): class_name for i, class_name in enumerate(class_names)})
+            class_names = [negative_label, positive_label]
+            # Map to corresponding indices in class_names array
+            y_true_mapped = np.where(y_true == negative_label, 0, 1)
+            y_pred_mapped = np.where(y_pred == negative_label, 0, 1)
 
             # Your existing code for the confusion matrix
-            wandb.log({f"{label}_confusion_matrix": wandb.plot.confusion_matrix(probs=y_pred_proba_2d, y_true=y_true_mapped)})
+            wandb.log({f"{label}_confusion_matrix": wandb.plot.confusion_matrix(preds=y_pred_mapped, y_true=y_true_mapped, class_names=class_names)})
 
             dk.data['extra_returns_per_train'][f'{label}_roc_auc'] = roc_auc_score(y_true, y_pred_proba)
             dk.data['extra_returns_per_train'][f'{label}_f1'] = f1_score(y_true, y_pred, pos_label=positive_label)
@@ -197,6 +198,7 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
         }
 
         self.wandb_init(name=f"{self.MODEL_IDENTIFIER}_{dk.pair}.feature_select",
+                project=self.WANDB_PROJECT,
                 job_type="feature_select",
                 config={
                     "SELECT_FEATURES_ITERATIONS": self.SELECT_FEATURES_ITERATIONS,
