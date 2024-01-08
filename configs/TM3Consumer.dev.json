@@ -43,7 +43,7 @@
         "emergency_exit": "market",
         "force_exit": "market",
         "force_entry": "market",
-        "stoploss": "market",
+        "stoploss": "limit",
         "stoploss_on_exchange": true,
         "stoploss_on_exchange_interval": 60,
         "stoploss_on_exchange_limit_ratio": 0.99
@@ -69,13 +69,14 @@
     ],
 
     "sagemaster": {
+        "PREDICT_TARGET_CANDLES": 6
     },
 
     "bot_name": "TM3BC",
     "force_entry_enable": true,
     "initial_state": "running",
     "internals": {
-        "process_throttle_secs": 30,
+        "process_throttle_secs": 15,
         "sd_notify": true,
         "heartbeat_interval": 60
     },

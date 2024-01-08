@@ -2,6 +2,10 @@
 import sys
 import os
 
+import talib
+
+from freqtrade.exchange.exchange_utils import timeframe_to_prev_date
+from freqtrade.strategy.strategy_helper import stoploss_from_absolute
 from freqtrade.strategy.strategy_helper import merge_informative_pair
 
 ROOT_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), '..'))
@@ -38,14 +42,14 @@ from freqtrade.strategy.parameters import BooleanParameter, DecimalParameter, In
 from datetime import timedelta, datetime, timezone
 from freqtrade.optimize.space import Categorical, Dimension, Integer, SKDecimal
 import talib.abstract as ta
-from sqlalchemy import column, desc
+from sqlalchemy import desc
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from scipy.signal import argrelextrema
 from joblib import Parallel, delayed
 
 from technical import qtpylib
 import pandas_ta as pta
-
+from freqtrade.exchange import timeframe_to_minutes
 from lib.prediction_storage import PredictionStorage
 
 logger = logging.getLogger(__name__)
@@ -132,10 +136,31 @@ class TM3Consumer(IStrategy):
     can_short = True
     ignore_roi_if_entry_signal = True
 
-    stoploss = -0.012
-    trailing_stop = True
+    stoploss = -0.03
+    trailing_stop = False
     trailing_only_offset_is_reached  = False
     trailing_stop_positive_offset = 0
+
+    @property
+    def PREDICT_TARGET(self):
+        return self.config["sagemaster"].get("PREDICT_TARGET_CANDLES", 6)
+
+    @property
+    def PREDICT_STORAGE_ENABLED(self):
+        return self.config["sagemaster"].get("PREDICT_STORAGE_ENABLED")
+
+    @property
+    def PREDICT_STORAGE_CONN_STRING(self):
+        return self.config["sagemaster"].get("PREDICT_STORAGE_CONN_STRING")
+
+
+    @property
+    def TARGET_EXTREMA_KERNEL(self):
+        return self.config["sagemaster"].get('TARGET_EXTREMA_KERNEL', 24)
+
+    @property
+    def TARGET_EXTREMA_WINDOW(self):
+        return self.config["sagemaster"].get('TARGET_EXTREMA_WINDOW', 5)
 
     def add_slope_indicator(self, df: DataFrame, target_var = "ohlc4_log", predict_target = 6) -> DataFrame:
         df = df.set_index(df['date'])
@@ -181,7 +206,7 @@ class TM3Consumer(IStrategy):
     ]
 
     def populate_indicators(self, df: DataFrame, metadata: dict) -> DataFrame:
-        self.log(f"ENTER .populate_indicators() {metadata} {df.shape}")
+        # self.log(f"ENTER .populate_indicators() {metadata} {df.shape}")
         start_time = time.time()
 
         pair = metadata['pair']
@@ -211,61 +236,79 @@ class TM3Consumer(IStrategy):
         # if not producer_dataframe.empty:
             # print("last candle")
             # print(last_candle)
-
+        df['atr'] = talib.ATR(df['high'], df['low'], df['close'], timeperiod=100)
         self.dp.send_msg(f"{metadata['pair']} predictions: \n  minima={last_candle['minima_tm3_1h']:.2f}, \n  maxima={last_candle['maxima_tm3_1h']:.2f}, \n  trend long={last_candle['trend_long_tm3_1h']:.2f}, \n  trend short={last_candle['trend_short_tm3_1h']:.2f}, \n  trend strength={last_candle['trend_strength_tm3_1h']:.2f}")
 
 
-        self.log(f"EXIT populate_indicators {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
+        # self.log(f"EXIT populate_indicators {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
         return df
 
-    def signal_entry_long(self, df: DataFrame):
-        general_condition = df['do_predict_tm3_1h'] == 1
-        minima_condition1 = qtpylib.crossed_below(df['minima_tm3_1h'], 0.8) & (df['trend_short_tm3_1h'] < 0.6) # minima reached and trend is not short
-        minima_condition2 = qtpylib.crossed_above(df['minima_tm3_1h'], 0.9) & (df['trend_short_tm3_1h'] < 0.7)
-        # trend_condition = (df['trend_long'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['maxima'] < 0.5) # trend is long and maxima is not reached
-        # return minima_condition | trend_condition
-        return general_condition & (minima_condition1 | minima_condition2)
-
-    def signal_exit_long(self, df: DataFrame):
-        general_condition = df['do_predict_tm3_1h'] == 1
-        maxima_condition = df['maxima_tm3_1h'] >= 0.8
-        # trend_condition = df['trend_long'] >= 0.9
-        # return minima_condition | trend_condition
-        return general_condition & maxima_condition
-
-
-    def signal_entry_short(self, df: DataFrame):
-        general_condition = df['do_predict_tm3_1h'] == 1
-        maxima_condition1 = qtpylib.crossed_below(df['maxima_tm3_1h'], 0.8) & (df['trend_long_tm3_1h'] < 0.6) # maxima reached and trend is not long
-        maxima_condition2 = qtpylib.crossed_above(df['maxima_tm3_1h'], 0.9) & (df['trend_long_tm3_1h'] < 0.7)
-        # trend_condition = (df['trend_short'] >= 0.8) & (df['trend_strength_abs'] >= 0.4) & (df['minima'] < 0.5) # trend is short and minima is not reached
-
-        # return maxima_condition | trend_condition
-        return general_condition & (maxima_condition1 | maxima_condition2)
-
-    def signal_exit_short(self, df: DataFrame):
-        general_condition = df['do_predict_tm3_1h'] == 1
-        maxima_condition = df['minima_tm3_1h'] >= 0.8
-        # trend_condition = df['trend_long'] >= 0.9
-        # return minima_condition | trend_condition
-        return general_condition & maxima_condition
+    def protection_di(self, df: DataFrame):
+        return (df["DI_values"] < df["DI_cutoff"])
 
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
 
-        df.loc[self.signal_entry_long(df), 'enter_long'] = 1
+        # LONG signals
+        df.loc[(
+            (df['minima_tm3_1h'] >= 0.8) & (df['maxima_tm3_1h'] < 0.5) & (df['trend_short_tm3_1h'] < 0.5)
+        ), ['enter_long', 'enter_tag']] = (1, 'kinda_minima')
 
-        df.loc[self.signal_entry_short(df),'enter_short'] = 1
+        df.loc[(
+            (df['trend_long_tm3_1h'] >= 0.9) & (df['maxima_tm3_1h'] < 0.5) & (df['trend_short_tm3_1h'] < 0.5)
+        ), ['enter_long', 'enter_tag']] = (1, 'strong_trend_long')
+
+        df.loc[(
+            (df['minima_tm3_1h'] >= 0.9) & (df['maxima_tm3_1h'] < 0.6) & (df['trend_short_tm3_1h'] < 0.7)
+        ), ['enter_long', 'enter_tag']] = (1, 'strong_minima')
+
+        # SHORT signals
+        df.loc[(
+            (df['maxima_tm3_1h'] >= 0.8) & (df['minima_tm3_1h'] < 0.5) & (df['trend_long_tm3_1h'] < 0.5)
+        ),['enter_short', 'enter_tag']] = (1, 'kinda_maxima')
+
+        df.loc[(
+            (df['maxima_tm3_1h'] >= 0.9) & (df['minima_tm3_1h'] < 0.6) & (df['trend_long_tm3_1h'] < 0.7)
+        ),['enter_short', 'enter_tag']] = (1, 'strong_maxima')
+
+        df.loc[(
+            (df['trend_short_tm3_1h'] >= 0.9) & (df['minima_tm3_1h'] < 0.5) & (df['trend_long_tm3_1h'] < 0.5)
+        ),['enter_short', 'enter_tag']] = (1, 'strong_trend_short')
 
         return df
 
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
 
-        df.loc[self.signal_exit_long(df), 'exit_long'] = 1
+        # LONGS
+        df.loc[(
+            (df['maxima_tm3_1h'] > 0.9) & (df['trend_short_tm3_1h'] < 0.5)
+        ), ['exit_long', 'exit_tag']] = (1, 'strong_maxima')
+        df.loc[(
+            (df['trend_short_tm3_1h'] > 0.8) & (df['trend_long_tm3_1h'] < 0.6)
+        ), ['exit_long', 'exit_tag']] = (1, 'strong_short_trend')
 
-        df.loc[self.signal_exit_short(df), 'exit_short'] = 1
+        # SHORTS
+        df.loc[(
+            (df['minima_tm3_1h'] > 0.9) & (df['trend_long_tm3_1h'] < 0.5)
+        ), ['exit_short', 'exit_tag']] = (1, 'strong_minima')
+
+        df.loc[(
+            (df['trend_long_tm3_1h'] > 0.8) & (df['trend_short_tm3_1h'] < 0.6)
+        ), ['exit_short', 'exit_tag']] = (1, 'strong_long_trend')
 
         return df
+
+
+    def custom_stoploss(self, pair: str, trade: 'Trade', current_time: datetime,
+                        current_rate: float, current_profit: float, after_fill: bool,
+                        **kwargs) -> Optional[float]:
+        dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+        trade_date = timeframe_to_prev_date(self.timeframe, trade.open_date_utc)
+        candle = dataframe.iloc[-1].squeeze()
+        side = 1 if trade.is_short else -1
+        return stoploss_from_absolute(current_rate + (side * candle['atr'] * 2),
+                                      current_rate, is_short=trade.is_short,
+                                      leverage=trade.leverage)
 
 
     def custom_exit(self, pair: str, trade: Trade, current_time: datetime, current_rate: float,
@@ -291,7 +334,7 @@ class TM3Consumer(IStrategy):
             return "almost_maxima"
 
         if trade.is_open and is_long and last_candle['trend_short_tm3_1h'] >= 0.7 and is_profitable:
-            return "trend_reserse_to_short"
+            return "trend_reverse_to_short"
 
         if trade.is_open and is_short and last_candle['minima_tm3_1h'] >= 0.6 and is_profitable:
             return "almost_minima"
@@ -353,11 +396,12 @@ class TM3Consumer(IStrategy):
         candles_between_peaks_description = pd.Series(candles_between_peaks).describe()
 
         # Creating dynamic ROI table using calculated statistics
+        minutes = timeframe_to_minutes(self.timeframe)
         dynamic_roi = {
-            "0": distances_description['75%'],
-            str(int(candles_between_peaks_description['25%'] * 60)): distances_description['50%'],
-            str(int(candles_between_peaks_description['50%'] * 60)): distances_description['25%'],
-            str(int(candles_between_peaks_description['75%'] * 60)): 0.00  # Using 75th percentile for the last tier
+            "0": distances_description['75%'], # trying to catch top 75% profit
+            # str(int(candles_between_peaks_description['25%'] * minutes)): distances_description['50%'],
+            # str(int(candles_between_peaks_description['50%'] * minutes)): distances_description['25%'],
+            str(int(candles_between_peaks_description['75%'] * minutes)): 0.00  # closing the rest 25% which has lower profit
         }
 
         # Cache the ROI table
