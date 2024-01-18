@@ -33,7 +33,9 @@
             "AVAX/USDT:USDT",
             "DOGE/USDT:USDT",
             "DOT/USDT:USDT",
-            "MATIC/USDT:USDT"
+            "MATIC/USDT:USDT",
+            "TRX/USDT:USDT",
+            "LINK/USDT:USDT"
         ],
         "pair_blacklist": []
     },
@@ -76,7 +78,7 @@
     "force_entry_enable": true,
     "initial_state": "running",
     "internals": {
-        "process_throttle_secs": 15,
+        "process_throttle_secs": 10,
         "sd_notify": true,
         "heartbeat_interval": 60
     },
