@@ -1,4 +1,5 @@
 # add common folders to path
+import re
 import sys
 import os
 
@@ -139,7 +140,7 @@ class TM3BinaryClassV2(IStrategy):
     """
 
     def heartbeat(self):
-        sdnotify.SystemdNotifier().notify("WATCHDOG=1")
+        sdnotify.SystemdNotifier().notify("WATCHDOG=1\nSTATUS=State: RUNNING.")
 
     def log(self, msg, *args, **kwargs):
         self.heartbeat()
@@ -206,45 +207,31 @@ class TM3BinaryClassV2(IStrategy):
         if (self.PREDICT_STORAGE_ENABLED):
             self.ps = PredictionStorage(connection_string=self.config["sagemaster"].get("PREDICT_STORAGE_CONN_STRING"))
 
-    def feature_engineering_trend(self, df: DataFrame, metadata, **kwargs):
+    def feature_engineering_trend(self, df: pd.DataFrame, metadata, **kwargs):
         self.log(f"ENTER .feature_engineering_trend() {metadata} {df.shape}")
         start_time = time.time()
 
-        # Trends for indicators
-        all_cols = filter(lambda col:
-            (col != 'trend')
-            and col.find('pmX') == -1
-            and col.find('date') == -1
-            and col.find('_signal') == -1
-            and col.find('_trend') == -1
-            and col.find('_rising') == -1
-            and col.find('_std') == -1
-            and col.find('_change_') == -1
-            and col.find('_lower_band') == -1
-            and col.find('_upper_band') == -1
-            and col.find('_upper_envelope') == -1
-            and col.find('_lower_envelope') == -1
-            and col.find('%-dist_to_') == -1
-            and col.find('%-s1') == -1
-            and col.find('%-s2') == -1
-            and col.find('%-s3') == -1
-            and col.find('%-r1') == -1
-            and col.find('%-r2') == -1
-            and col.find('%-r3') == -1
-            and col.find('_divergence') == -1, df.columns)
+        # Optimized Column Filtering using Regular Expression
+        regex_pattern = r'^(?!.*(pmX|date|_signal|_trend|_rising|_std|_change_|_lower_band|_upper_band|_upper_envelope|_lower_envelope|%-dist_to_|%-s[123]|%-r[123]|_divergence)).*$'
+        all_cols = [col for col in df.columns if re.match(regex_pattern, col)]
 
-        results = []
-        result_cols = []
-        # launch all processes
-        # Use Parallel and delayed for multiprocessing
-        result_cols = Parallel(n_jobs=self.config["freqai"].get("data_kitchen_thread_count", 4))(
-            delayed(helpers.create_col_trend)(col, self.PREDICT_TARGET, df, "polyfit") for col in all_cols
+        # # Parallel Processing
+        n_jobs = self.config["freqai"].get("data_kitchen_thread_count", 4)
+        result_cols = Parallel(n_jobs=n_jobs)(
+            delayed(helpers.create_col_trend)(col, self.PREDICT_TARGET, df) for col in all_cols
         )
+        # # Using DataFrame apply
+        # result_cols = []
+        # for col in all_cols:
+        #     # try:
+        #     trend_col = helpers.create_col_trend(col, self.PREDICT_TARGET, df)
+        #     result_cols.append(trend_col)
+        #     # except Exception as e:
+        #     # self.log(f"Error processing column {col}: {e}")
+        #         # continue
 
-        # Combine results
+        # Memory Efficient Concatenation
         result_df = pd.concat(result_cols, axis=1)
-        result_df.columns = ["%-"+x for x in result_df.columns]
-
         df = pd.concat([df, result_df], axis=1)
 
         self.log(f"EXIT .feature_engineering_trend() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
