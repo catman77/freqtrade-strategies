@@ -5,6 +5,7 @@ from numpy import log
 from numpy import sign
 from scipy.stats import rankdata
 from joblib import Parallel, delayed
+from joblib import Parallel, delayed
 
 # region Auxiliary functions
 def ts_sum(df, window=10):
@@ -210,6 +211,31 @@ def get_alpha(df, prefix='%-', jobs=4):
             continue
         if (df[col] > 10**30).any():
             df[col] = df[col].apply(lambda x: x if x < 10**30 else np.nan)
+def calculate_alpha(stock, alpha_method, prefix):
+    return prefix + alpha_method, getattr(stock, alpha_method)()
+
+def get_alpha(df, prefix='%-', jobs=4):
+    stock = Alphas(df)
+
+    # Generate list of all possible alpha methods
+    all_alpha_methods = [f'alpha{i:03d}' for i in range(1, 102)]
+
+    # Filter methods based on their existence in the stock object
+    valid_alpha_methods = [method for method in all_alpha_methods if hasattr(stock, method)]
+
+    # Use joblib to parallelize the alpha calculations
+    results = Parallel(n_jobs=jobs)(delayed(calculate_alpha)(stock, method, prefix) for method in valid_alpha_methods)
+
+    # Update the DataFrame with the results
+    for col_name, col_data in results:
+        df[col_name] = col_data
+
+    # Post-processing as before
+    for col in df.columns:
+        if col in ['date', 'close', 'open', 'high', 'low', 'volume']:
+            continue
+        if (df[col] > 10**30).any():
+            df[col] = df[col].apply(lambda x: x if x < 10**30 else np.nan)
 
     return df.replace([np.inf, -np.inf], np.nan).ffill().fillna(0)
 
@@ -224,6 +250,9 @@ class Alphas(object):
         self.close = df_data['close']
         self.volume = df_data['volume']
         self.returns = df_data['close'].pct_change().fillna(method='ffill').fillna(0)
+        self.vwap = (
+            (df_data['close'] * df_data['volume']).cumsum() / df_data['volume'].cumsum()
+        )
         self.vwap = (
             (df_data['close'] * df_data['volume']).cumsum() / df_data['volume'].cumsum()
         )
