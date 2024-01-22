@@ -127,7 +127,7 @@ def get_distance(p1, p2):
     return abs((p1) - (p2))
 
 
-class TM3BinaryClassV2(IStrategy):
+class TM3BinaryClassV3(IStrategy):
     """
     Example strategy showing how the user connects their own
     IFreqaiModel to the strategy. Namely, the user uses:
@@ -478,18 +478,47 @@ class TM3BinaryClassV2(IStrategy):
 
         df = candle_stats(df)
 
-        atr = talib.ATR(df['high'], df['low'], df['close'], timeperiod=100) / df['close']
+        # target: trend slope
+        kernel = 25
+        df.set_index(df['date'], inplace=True)
+        target = helpers.create_target(df, kernel,
+                                       method='polyfit', polyfit_var=self.TARGET_VAR)
+        target = target.set_index('start_windows')
+        scaled_slope = RobustScaler().fit_transform(target['slope'].values.reshape(-1, 1)).reshape(-1)
+        target['scaled_slope'] = scaled_slope
+        # align index
+        target = target.reindex(df.index)
+        # set trend target
+        df['trend_slope'] = np.nan
+        df['trend_slope'] = target['scaled_slope']
+        # reset index and get back
+        df = df.reset_index(drop=True)
 
-        # target: expected range
-        range_kernel = 24
-        max_range = df["high"].shift(-range_kernel).rolling(range_kernel).max() / df["close"] - 1
-        min_range = df["low"].shift(-range_kernel).rolling(range_kernel).min() / df["close"] - 1
-        tresh = atr * 2
-        df['&-trend_long'] = np.where(max_range > tresh, "trend_long", "trend_not_long")
-        df['&-trend_short'] = np.where(min_range < -tresh, "trend_short", "trend_not_short")
+        ## Classify trend
+        slope_filter = self.freqai_info["feature_parameters"]["target_slope_filter"]
+        df['&-trend_long'] = np.where(df['trend_slope'] > slope_filter, 'trend_long', 'trend_not_long')
+        df['&-trend_short'] = np.where(df['trend_slope'] < -slope_filter, 'trend_short', 'trend_not_short')
 
-        print(df['&-trend_long'].value_counts())
-        print(df['&-trend_short'].value_counts())
+
+        # target: trend slope
+        df.set_index(df['date'], inplace=True)
+        target = helpers.create_target(df, 50,
+                                       method='polyfit', polyfit_var=self.TARGET_VAR)
+        target = target.set_index('start_windows')
+        scaled_slope = RobustScaler().fit_transform(target['slope'].values.reshape(-1, 1)).reshape(-1)
+        target['scaled_slope'] = scaled_slope
+        # align index
+        target = target.reindex(df.index)
+        # set trend target
+        df['trend_slope_50'] = np.nan
+        df['trend_slope_50'] = target['scaled_slope']
+        # reset index and get back
+        df = df.reset_index(drop=True)
+
+        ## Classify trend
+        slope_filter = self.freqai_info["feature_parameters"]["target_slope_filter"]
+        df['&-trend_long_50'] = np.where(df['trend_slope_50'] > slope_filter, 'trend_long_50', 'trend_not_long_50')
+        df['&-trend_short_50'] = np.where(df['trend_slope_50'] < -slope_filter, 'trend_short_50', 'trend_not_short_50')
 
 
         # # target: expected range 12h
@@ -657,58 +686,58 @@ class TM3BinaryClassV2(IStrategy):
 
     def signal_good_long(self, df: DataFrame):
         return (
-            (df['minima_tm3_1h'] >= 0.5) &
-            (df['trend_long_tm3_1h'] >= 0.8) &
-            (df['maxima_tm3_1h'] <= 0.3) &
-            (df['trend_short_tm3_1h'] <= 0.2)
+            (df['minima'] >= 0.5) &
+            (df['trend_long'] >= 0.8) &
+            (df['maxima'] <= 0.3) &
+            (df['trend_short'] <= 0.2)
         )
 
     def signal_super_long(self, df: DataFrame):
         return (
-            (df['minima_tm3_1h'] >= 0.8) &
-            (df['trend_long_tm3_1h'] >= 0.8) &
-            (df['maxima_tm3_1h'] <= 0.5) &
-            (df['trend_short_tm3_1h'] <= 0.3)
+            (df['minima'] >= 0.8) &
+            (df['trend_long'] >= 0.8) &
+            (df['maxima'] <= 0.5) &
+            (df['trend_short'] <= 0.3)
         )
 
     def signal_minima_pullback(self, df: DataFrame):
         return (
-            (df['minima_tm3_1h'] >= 0.9) &
-            (df['trend_long_tm3_1h'] >= 0.2) &
-            (df['maxima_tm3_1h'] <= 0.4) &
-            (df['trend_short_tm3_1h'] <= 0.4)
+            (df['minima'] >= 0.9) &
+            (df['trend_long'] >= 0.2) &
+            (df['maxima'] <= 0.4) &
+            (df['trend_short'] <= 0.4)
         )
 
     def signal_combo_long(self, df: DataFrame):
         return (
-            (df['minima_tm3_1h'] >= 0.7) &
-            (df['trend_long_tm3_1h'] >= 0.7) &
-            (df['maxima_tm3_1h'] <= 0.3) &
-            (df['trend_short_tm3_1h'] <= 0.3)
+            (df['minima'] >= 0.7) &
+            (df['trend_long'] >= 0.7) &
+            (df['maxima'] <= 0.3) &
+            (df['trend_short'] <= 0.3)
         )
 
     def scalp_long(self, df: DataFrame):
         return (
-            (df['minima_tm3_1h'] >= 0.2) &
-            (df['trend_long_tm3_1h'] >= 0.7) &
-            (df['maxima_tm3_1h'] <= 0.3) &
-            (df['trend_short_tm3_1h'] <= 0.3)
+            (df['minima'] >= 0.2) &
+            (df['trend_long'] >= 0.7) &
+            (df['maxima'] <= 0.3) &
+            (df['trend_short'] <= 0.3)
         )
 
     def signal_maxima_pullback(self, df: DataFrame):
         return (
-            (df['maxima_tm3_1h'] >= 0.7) &
-            (df['trend_short_tm3_1h'] >= 0.2) &
-            (df['minima_tm3_1h'] <= 0.3) &
-            (df['trend_short_tm3_1h'] <= 0.2)
+            (df['maxima'] >= 0.7) &
+            (df['trend_short'] >= 0.2) &
+            (df['minima'] <= 0.3) &
+            (df['trend_short'] <= 0.2)
         )
 
     def signal_strong_short(self, df: DataFrame):
         return (
-            (df['maxima_tm3_1h'] >= 0.4) &
-            (df['trend_short_tm3_1h'] >= 0.8) &
-            (df['minima_tm3_1h'] <= 0.5) &
-            (df['trend_long_tm3_1h'] <= 0.15)
+            (df['maxima'] >= 0.4) &
+            (df['trend_short'] >= 0.8) &
+            (df['minima'] <= 0.5) &
+            (df['trend_long'] <= 0.15)
         )
 
 
@@ -812,16 +841,16 @@ class TM3BinaryClassV2(IStrategy):
             return roi_result
 
         # 2. Check trend & extrema
-        if is_long and last_candle['maxima_tm3_1h'] >= 0.7 and is_profitable:
+        if is_long and last_candle['maxima'] >= 0.7 and is_profitable:
             return "almost_maxima"
 
-        if is_long and last_candle['trend_short_tm3_1h'] >= 0.7 and is_profitable:
+        if is_long and last_candle['trend_short'] >= 0.7 and is_profitable:
             return "trend_reverse_to_short"
 
-        if is_short and last_candle['minima_tm3_1h'] >= 0.7 and is_profitable:
+        if is_short and last_candle['minima'] >= 0.7 and is_profitable:
             return "almost_minima"
 
-        if is_short and last_candle['trend_long_tm3_1h'] >= 0.7 and is_profitable:
+        if is_short and last_candle['trend_long'] >= 0.7 and is_profitable:
             return "trend_reserse_to_long"
 
         # 3. custom exit per enter_tag

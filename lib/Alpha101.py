@@ -4,6 +4,7 @@ from numpy import abs
 from numpy import log
 from numpy import sign
 from scipy.stats import rankdata
+from joblib import Parallel, delayed
 
 # region Auxiliary functions
 def ts_sum(df, window=10):
@@ -184,103 +185,33 @@ def decay_linear(df, period=10):
     return pd.DataFrame(na_lwma, index=df.index, columns=['CLOSE'])
 # endregion
 
+def calculate_alpha(stock, alpha_method, prefix):
+    return prefix + alpha_method, getattr(stock, alpha_method)()
+
 def get_alpha(df, prefix='%-'):
-        stock=Alphas(df)
-        df['alpha001']=stock.alpha001()
-        df['alpha002']=stock.alpha002()
-        df['alpha003']=stock.alpha003()
-        df['alpha004']=stock.alpha004()
-        df['alpha005']=stock.alpha005()
-        df['alpha006']=stock.alpha006()
-        df['alpha007']=stock.alpha007()
-        df['alpha008']=stock.alpha008()
-        df['alpha009']=stock.alpha009()
-        df['alpha010']=stock.alpha010()
-        df['alpha011']=stock.alpha011()
-        df['alpha012']=stock.alpha012()
-        df['alpha013']=stock.alpha013()
-        df['alpha014']=stock.alpha014()
-        df['alpha015']=stock.alpha015()
-        df['alpha016']=stock.alpha016()
-        df['alpha017']=stock.alpha017()
-        df['alpha018']=stock.alpha018()
-        df['alpha019']=stock.alpha019()
-        df['alpha020']=stock.alpha020()
-        df['alpha021']=stock.alpha021()
-        df['alpha022']=stock.alpha022()
-        df['alpha023']=stock.alpha023()
-        df['alpha024']=stock.alpha024()
-        df['alpha025']=stock.alpha025()
-        df['alpha026']=stock.alpha026()
-        df['alpha027']=stock.alpha027()
-        df['alpha028']=stock.alpha028()
-        df['alpha029']=stock.alpha029()
-        df['alpha030']=stock.alpha030()
-        df['alpha031']=stock.alpha031()
-        df['alpha032']=stock.alpha032()
-        df['alpha033']=stock.alpha033()
-        df['alpha034']=stock.alpha034()
-        df['alpha035']=stock.alpha035()
-        df['alpha036']=stock.alpha036()
-        df['alpha037']=stock.alpha037()
-        df['alpha038']=stock.alpha038()
-        df['alpha039']=stock.alpha039()
-        df['alpha040']=stock.alpha040()
-        df['alpha041']=stock.alpha041()
-        df['alpha042']=stock.alpha042()
-        df['alpha043']=stock.alpha043()
-        df['alpha044']=stock.alpha044()
-        df['alpha045']=stock.alpha045()
-        df['alpha046']=stock.alpha046()
-        df['alpha047']=stock.alpha047()
-        df['alpha049']=stock.alpha049()
-        df['alpha050']=stock.alpha050()
-        df['alpha051']=stock.alpha051()
-        df['alpha052']=stock.alpha052()
-        df['alpha053']=stock.alpha053()
-        df['alpha054']=stock.alpha054()
-        df['alpha055']=stock.alpha055()
-        df['alpha057']=stock.alpha057()
-        df['alpha060']=stock.alpha060()
-        # df['alpha061']=0#stock.alpha061()
-        df['alpha062']=stock.alpha062()
-        df['alpha064']=stock.alpha064()
-        df['alpha065']=stock.alpha065()
-        df['alpha066']=stock.alpha066()
-        df['alpha068']=stock.alpha068()
-        df['alpha071']=stock.alpha071()
-        df['alpha072']=stock.alpha072()
-        df['alpha073']=stock.alpha073()
-        df['alpha074']=stock.alpha074()
-        # df['alpha075']=stock.alpha075()
-        df['alpha077']=stock.alpha077()
-        df['alpha078']=stock.alpha078()
-        df['alpha081']=stock.alpha081()
-        df['alpha083']=stock.alpha083()
-        df['alpha084']=stock.alpha084()
-        df['alpha085']=stock.alpha085()
-        df['alpha086']=stock.alpha086()
-        df['alpha088']=stock.alpha088()
-        df['alpha092']=stock.alpha092()
-        df['alpha094']=stock.alpha094()
-        df['alpha095']=stock.alpha095()
-        df['alpha096']=stock.alpha096()
-        df['alpha098']=stock.alpha098()
-        df['alpha099']=stock.alpha099()
-        df['alpha101']=stock.alpha101()
+    stock = Alphas(df)
 
-        # remove features which are too big
-        for col in df.columns:
-            # skip non numeric columns
-            if (col in ['date', 'close', 'open', 'high', 'low', 'volume']):
-                continue
+    # Generate list of all possible alpha methods
+    all_alpha_methods = [f'alpha{i:03d}' for i in range(1, 102)]
 
-            # replace too big values with nan
-            if (df[col] > 10**30).any():
-                df[col] = df[col].apply(lambda x: x if x < 10**30 else np.inf)
+    # Filter methods based on their existence in the stock object
+    valid_alpha_methods = [method for method in all_alpha_methods if hasattr(stock, method)]
 
-        # remove inf and nan values
-        return df.replace([np.inf, -np.inf], np.nan).fillna(method='ffill').fillna(0)
+    # Use joblib to parallelize the alpha calculations
+    results = Parallel(n_jobs=-1)(delayed(calculate_alpha)(stock, method, prefix) for method in valid_alpha_methods)
+
+    # Update the DataFrame with the results
+    for col_name, col_data in results:
+        df[col_name] = col_data
+
+    # Post-processing as before
+    for col in df.columns:
+        if col in ['date', 'close', 'open', 'high', 'low', 'volume']:
+            continue
+        if (df[col] > 10**30).any():
+            df[col] = df[col].apply(lambda x: x if x < 10**30 else np.nan)
+
+    return df.replace([np.inf, -np.inf], np.nan).fillna(method='ffill').fillna(0)
 
 class Alphas(object):
     def __init__(self, df_data):
@@ -293,11 +224,9 @@ class Alphas(object):
         self.close = df_data['close']
         self.volume = df_data['volume']
         self.returns = df_data['close'].pct_change().fillna(method='ffill').fillna(0)
-        self.vwap = df_data.assign(
-            vwap=df_data.eval(
-                'wgtd = close * volume', inplace=False
-            ).groupby(df_data.index).cumsum().eval('wgtd / volume')
-        )['vwap']
+        self.vwap = (
+            (df_data['close'] * df_data['volume']).cumsum() / df_data['volume'].cumsum()
+        )
 
     # Alpha#1	 (rank(Ts_ArgMax(SignedPower(((returns < 0) ? stddev(returns, 20) : close), 2.), 5)) -0.5)
     def alpha001(self):
