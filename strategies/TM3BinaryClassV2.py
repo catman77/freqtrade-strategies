@@ -1,11 +1,13 @@
 # add common folders to path
+import re
 import sys
 import os
 
 import talib
 
 from freqtrade.exchange.exchange_utils import timeframe_to_prev_date
-from freqtrade.strategy.strategy_helper import stoploss_from_absolute
+from freqtrade.strategy.strategy_helper import stoploss_from_absolute, stoploss_from_open
+from freqtrade.strategy.strategy_helper import merge_informative_pair
 
 ROOT_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(ROOT_DIR)
@@ -126,7 +128,7 @@ def get_distance(p1, p2):
     return abs((p1) - (p2))
 
 
-class TM3BinaryClassV2_(IStrategy):
+class TM3BinaryClassV2(IStrategy):
     """
     Example strategy showing how the user connects their own
     IFreqaiModel to the strategy. Namely, the user uses:
@@ -138,14 +140,14 @@ class TM3BinaryClassV2_(IStrategy):
     """
 
     def heartbeat(self):
-        sdnotify.SystemdNotifier().notify("WATCHDOG=1")
+        sdnotify.SystemdNotifier().notify("WATCHDOG=1\nSTATUS=State: RUNNING.")
 
     def log(self, msg, *args, **kwargs):
         self.heartbeat()
         logger.info(msg, *args, **kwargs)
 
     minimal_roi = {
-        "0": 0.13
+        "0": 0.04 # Target: RR 1:1
     }
 
     TARGET_VAR = "ohlc4_log"
@@ -154,7 +156,7 @@ class TM3BinaryClassV2_(IStrategy):
     use_exit_signal = True
     can_short = True
     ignore_roi_if_entry_signal = True
-    use_custom_stoploss = True
+    use_custom_stoploss = False
 
     stoploss = -0.04
     trailing_stop = False
@@ -205,45 +207,31 @@ class TM3BinaryClassV2_(IStrategy):
         if (self.PREDICT_STORAGE_ENABLED):
             self.ps = PredictionStorage(connection_string=self.config["sagemaster"].get("PREDICT_STORAGE_CONN_STRING"))
 
-    def feature_engineering_trend(self, df: DataFrame, metadata, **kwargs):
+    def feature_engineering_trend(self, df: pd.DataFrame, metadata, **kwargs):
         self.log(f"ENTER .feature_engineering_trend() {metadata} {df.shape}")
         start_time = time.time()
 
-        # Trends for indicators
-        all_cols = filter(lambda col:
-            (col != 'trend')
-            and col.find('pmX') == -1
-            and col.find('date') == -1
-            and col.find('_signal') == -1
-            and col.find('_trend') == -1
-            and col.find('_rising') == -1
-            and col.find('_std') == -1
-            and col.find('_change_') == -1
-            and col.find('_lower_band') == -1
-            and col.find('_upper_band') == -1
-            and col.find('_upper_envelope') == -1
-            and col.find('_lower_envelope') == -1
-            and col.find('%-dist_to_') == -1
-            and col.find('%-s1') == -1
-            and col.find('%-s2') == -1
-            and col.find('%-s3') == -1
-            and col.find('%-r1') == -1
-            and col.find('%-r2') == -1
-            and col.find('%-r3') == -1
-            and col.find('_divergence') == -1, df.columns)
+        # Optimized Column Filtering using Regular Expression
+        regex_pattern = r'^(?!.*(pmX|date|_signal|_trend|_rising|_std|_change_|_lower_band|_upper_band|_upper_envelope|_lower_envelope|%-dist_to_|%-s[123]|%-r[123]|_divergence)).*$'
+        all_cols = [col for col in df.columns if re.match(regex_pattern, col)]
 
-        results = []
-        result_cols = []
-        # launch all processes
-        # Use Parallel and delayed for multiprocessing
-        result_cols = Parallel(n_jobs=self.config["freqai"].get("data_kitchen_thread_count", 4))(
-            delayed(helpers.create_col_trend)(col, self.PREDICT_TARGET, df, "polyfit") for col in all_cols
+        # # Parallel Processing
+        n_jobs = self.config["freqai"].get("data_kitchen_thread_count", 4)
+        result_cols = Parallel(n_jobs=n_jobs)(
+            delayed(helpers.create_col_trend)(col, self.PREDICT_TARGET, df) for col in all_cols
         )
+        # # Using DataFrame apply
+        # result_cols = []
+        # for col in all_cols:
+        #     # try:
+        #     trend_col = helpers.create_col_trend(col, self.PREDICT_TARGET, df)
+        #     result_cols.append(trend_col)
+        #     # except Exception as e:
+        #     # self.log(f"Error processing column {col}: {e}")
+        #         # continue
 
-        # Combine results
+        # Memory Efficient Concatenation
         result_df = pd.concat(result_cols, axis=1)
-        result_df.columns = ["%-"+x for x in result_df.columns]
-
         df = pd.concat([df, result_df], axis=1)
 
         self.log(f"EXIT .feature_engineering_trend() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
@@ -477,18 +465,28 @@ class TM3BinaryClassV2_(IStrategy):
 
         df = candle_stats(df)
 
-        atr = talib.ATR(df['high'], df['low'], df['close'], timeperiod=100) / df['close']
+        # atr = talib.ATR(df['high'], df['low'], df['close'], timeperiod=100) / df['close']
 
-        # target: expected range
-        range_kernel = 24
-        max_range = df["high"].shift(-range_kernel).rolling(range_kernel).max() / df["close"] - 1
-        min_range = df["low"].shift(-range_kernel).rolling(range_kernel).min() / df["close"] - 1
-        tresh = atr * 2
-        df['&-trend_long'] = np.where(max_range > tresh, "trend_long", "trend_not_long")
-        df['&-trend_short'] = np.where(min_range < -tresh, "trend_short", "trend_not_short")
+        # target: trend slope
+        kernel = 25
+        df.set_index(df['date'], inplace=True)
+        target = helpers.create_target(df, kernel,
+                                       method='polyfit', polyfit_var=self.TARGET_VAR)
+        target = target.set_index('start_windows')
+        scaled_slope = RobustScaler().fit_transform(target['slope'].values.reshape(-1, 1)).reshape(-1)
+        target['scaled_slope'] = scaled_slope
+        # align index
+        target = target.reindex(df.index)
+        # set trend target
+        df['trend_slope'] = np.nan
+        df['trend_slope'] = target['scaled_slope']
+        # reset index and get back
+        df = df.reset_index(drop=True)
 
-        print(df['&-trend_long'].value_counts())
-        print(df['&-trend_short'].value_counts())
+        ## Classify trend
+        slope_filter = self.freqai_info["feature_parameters"]["target_slope_filter"]
+        df['&-trend_long'] = np.where(df['trend_slope'] > slope_filter, 'trend_long', 'trend_not_long')
+        df['&-trend_short'] = np.where(df['trend_slope'] < -slope_filter, 'trend_short', 'trend_not_short')
 
 
         # # target: expected range 12h
@@ -654,68 +652,140 @@ class TM3BinaryClassV2_(IStrategy):
         return (df["DI_values"] < df["DI_cutoff"])
 
 
+    def signal_good_long(self, df: DataFrame):
+        return (
+            (df['minima'] >= 0.5) &
+            (df['trend_long'] >= 0.8) &
+            (df['maxima'] <= 0.3) &
+            (df['trend_short'] <= 0.2)
+        )
+
+    def signal_super_long(self, df: DataFrame):
+        return (
+            (df['minima'] >= 0.8) &
+            (df['trend_long'] >= 0.8) &
+            (df['maxima'] <= 0.5) &
+            (df['trend_short'] <= 0.3)
+        )
+
+    def signal_minima_pullback(self, df: DataFrame):
+        return (
+            (df['minima'] >= 0.9) &
+            (df['trend_long'] >= 0.2) &
+            (df['maxima'] <= 0.4) &
+            (df['trend_short'] <= 0.4)
+        )
+
+    def signal_combo_long(self, df: DataFrame):
+        return (
+            (df['minima'] >= 0.7) &
+            (df['trend_long'] >= 0.7) &
+            (df['maxima'] <= 0.3) &
+            (df['trend_short'] <= 0.3)
+        )
+
+    def scalp_long(self, df: DataFrame):
+        return (
+            (df['minima'] >= 0.2) &
+            (df['trend_long'] >= 0.7) &
+            (df['maxima'] <= 0.3) &
+            (df['trend_short'] <= 0.3)
+        )
+
+    def signal_maxima_pullback(self, df: DataFrame):
+        return (
+            (df['maxima'] >= 0.7) &
+            (df['trend_short'] >= 0.2) &
+            (df['minima'] <= 0.3) &
+            (df['trend_short'] <= 0.2)
+        )
+
+    def signal_strong_short(self, df: DataFrame):
+        return (
+            (df['maxima'] >= 0.4) &
+            (df['trend_short'] >= 0.8) &
+            (df['minima'] <= 0.5) &
+            (df['trend_long'] <= 0.15)
+        )
+
+
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
+        ## LONG signals
 
-        # LONG signals
+        # super long
         df.loc[(
-            (df['minima'] >= 0.8) & (df['maxima'] < 0.5) & (df['trend_short'] < 0.5)
-        ), ['enter_long', 'enter_tag']] = (1, 'kinda_minima')
+            self.signal_super_long(df)
+        ), ['enter_long', 'enter_tag']] = (1, 'super_long')
 
+        # good long
         df.loc[(
-            (df['trend_long'] >= 0.9) & (df['maxima'] < 0.5) & (df['trend_short'] < 0.5)
-        ), ['enter_long', 'enter_tag']] = (1, 'strong_trend_long')
+            self.signal_good_long(df)
+        ), ['enter_long', 'enter_tag']] = (1, 'good_long')
 
+        # minima pullback
         df.loc[(
-            (df['minima'] >= 0.9) & (df['maxima'] < 0.6) & (df['trend_short'] < 0.7)
-        ), ['enter_long', 'enter_tag']] = (1, 'strong_minima')
+            self.signal_minima_pullback(df)
+        ), ['enter_long', 'enter_tag']] = (1, 'minima_pullback')
 
-        # SHORT signals
+        # combo long
         df.loc[(
-            (df['maxima'] >= 0.8) & (df['minima'] < 0.5) & (df['trend_long'] < 0.5)
-        ),['enter_short', 'enter_tag']] = (1, 'kinda_maxima')
+            self.signal_combo_long(df)
+        ), ['enter_long', 'enter_tag']] = (1, 'combo_long')
 
+        # scalp long
         df.loc[(
-            (df['maxima'] >= 0.9) & (df['minima'] < 0.6) & (df['trend_long'] < 0.7)
-        ),['enter_short', 'enter_tag']] = (1, 'strong_maxima')
+            self.scalp_long(df)
+        ), ['enter_long', 'enter_tag']] = (1, 'scalp_long')
 
+        ## SHORT signals
+
+        # maxima pullback
         df.loc[(
-            (df['trend_short'] >= 0.9) & (df['minima'] < 0.5) & (df['trend_long'] < 0.5)
-        ),['enter_short', 'enter_tag']] = (1, 'strong_trend_short')
+            self.signal_maxima_pullback(df)
+        ), ['enter_short', 'enter_tag']] = (1, 'maxima_pullback')
+
+        # strong short
+        df.loc[(
+            self.signal_strong_short(df)
+        ), ['enter_short', 'enter_tag']] = (1, 'strong_short')
+
 
         return df
 
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
-
         # LONGS
         df.loc[(
-            (df['maxima'] > 0.9) & (df['trend_short'] < 0.5)
-        ), ['exit_long', 'exit_tag']] = (1, 'strong_maxima')
+            self.signal_strong_short(df)
+        ), ['exit_long', 'exit_tag']] = (1, 'exit_strong_short')
+
         df.loc[(
-            (df['trend_short'] > 0.8) & (df['trend_long'] < 0.6)
-        ), ['exit_long', 'exit_tag']] = (1, 'strong_short_trend')
+            self.signal_maxima_pullback(df)
+        ), ['exit_long', 'exit_tag']] = (1, 'exit_maxima_pullback')
 
         # SHORTS
         df.loc[(
-            (df['minima'] > 0.9) & (df['trend_long'] < 0.5)
-        ), ['exit_short', 'exit_tag']] = (1, 'strong_minima')
+            self.signal_good_long(df)
+        ), ['exit_short', 'exit_tag']] = (1, 'exit_good_long')
 
         df.loc[(
-            (df['trend_long'] > 0.8) & (df['trend_short'] < 0.6)
-        ), ['exit_short', 'exit_tag']] = (1, 'strong_long_trend')
+            self.signal_super_long(df)
+        ), ['exit_short', 'exit_tag']] = (1, 'exit_super_long')
+
+        df.loc[(
+            self.signal_minima_pullback(df)
+        ), ['exit_short', 'exit_tag']] = (1, 'exit_minima_pullback')
 
         return df
-
 
     def custom_stoploss(self, pair: str, trade: 'Trade', current_time: datetime,
                         current_rate: float, current_profit: float, after_fill: bool,
                         **kwargs) -> Optional[float]:
-        dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
-        trade_date = timeframe_to_prev_date(self.timeframe, trade.open_date_utc)
-        candle = dataframe.iloc[-1].squeeze()
-        side = 1 if trade.is_short else -1
-        return stoploss_from_absolute(current_rate + (side * candle['atr'] * 2),
-                                      current_rate, is_short=trade.is_short,
-                                      leverage=trade.leverage)
+
+        # once the profit has risen above 2%, keep the stoploss at breakeven
+        if current_profit >= 0.02:
+            return stoploss_from_open(0.001, current_profit, is_short=trade.is_short, leverage=trade.leverage)
+
+        return 1
 
 
     def custom_exit(self, pair: str, trade: Trade, current_time: datetime, current_rate: float,
@@ -733,21 +803,30 @@ class TM3BinaryClassV2_(IStrategy):
         is_long = trade.is_short == False
         is_profitable = current_profit > 0
 
+        # 1. Check ROI
         roi_result = self.check_roi(pair, current_time, trade.open_date_utc, current_profit)
         if roi_result:
             return roi_result
 
-        if trade.is_open and is_long and last_candle['maxima'] >= 0.6 and is_profitable:
+        # 2. Check trend & extrema
+        if is_long and last_candle['maxima'] >= 0.7 and is_profitable:
             return "almost_maxima"
 
-        if trade.is_open and is_long and last_candle['trend_short'] >= 0.7 and is_profitable:
-            return "trend_reserse_to_short"
+        if is_long and last_candle['trend_short'] >= 0.7 and is_profitable:
+            return "trend_reverse_to_short"
 
-        if trade.is_open and is_short and last_candle['minima'] >= 0.6 and is_profitable:
+        if is_short and last_candle['minima'] >= 0.7 and is_profitable:
             return "almost_minima"
 
-        if trade.is_open and is_short and last_candle['trend_long'] >= 0.7 and is_profitable:
+        if is_short and last_candle['trend_long'] >= 0.7 and is_profitable:
             return "trend_reserse_to_long"
+
+        # 3. custom exit per enter_tag
+        if trade.enter_tag == "scalp_long" and current_profit >= 0.015:
+            return "scalp_long_target_reached"
+
+        if is_short and current_profit >= 0.03:
+            return "short_target_reached"
 
 
     ####
@@ -755,6 +834,11 @@ class TM3BinaryClassV2_(IStrategy):
     cached_roi_tables = {}
 
     def get_or_create_roi_table(self, pair, kernel=6):
+
+        # Reset cache if new day
+        if datetime.now().hour == 0:
+            self.cached_roi_tables = {}
+
         # Check cache first
         if pair in self.cached_roi_tables:
             return self.cached_roi_tables[pair]
@@ -805,10 +889,10 @@ class TM3BinaryClassV2_(IStrategy):
         # Creating dynamic ROI table using calculated statistics
         minutes = timeframe_to_minutes(self.timeframe)
         dynamic_roi = {
-            "0": distances_description['75%'],
+            "0": distances_description['75%'], # trying to catch top 75% profit
             # str(int(candles_between_peaks_description['25%'] * minutes)): distances_description['50%'],
             # str(int(candles_between_peaks_description['50%'] * minutes)): distances_description['25%'],
-            str(int(candles_between_peaks_description['75%'] * minutes)): 0.00  # Using 75th percentile for the last tier
+            str(int(candles_between_peaks_description['75%'] * minutes)): 0.00  # closing the rest 25% which has lower profit
         }
 
         # Cache the ROI table

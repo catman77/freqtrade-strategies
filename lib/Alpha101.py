@@ -168,8 +168,8 @@ def decay_linear(df, period=10):
     """
     # Clean data
     if df.isnull().values.any():
-        df.fillna(method='ffill', inplace=True)
-        df.fillna(method='bfill', inplace=True)
+        df.ffill(inplace=True)
+        df.bfill(inplace=True)
         df.fillna(value=0, inplace=True)
     na_lwma = np.zeros_like(df)
     na_lwma[:period, :] = df.iloc[:period, :]
@@ -188,7 +188,7 @@ def decay_linear(df, period=10):
 def calculate_alpha(stock, alpha_method, prefix):
     return prefix + alpha_method, getattr(stock, alpha_method)()
 
-def get_alpha(df, prefix='%-'):
+def get_alpha(df, prefix='%-', jobs=4):
     stock = Alphas(df)
 
     # Generate list of all possible alpha methods
@@ -198,7 +198,32 @@ def get_alpha(df, prefix='%-'):
     valid_alpha_methods = [method for method in all_alpha_methods if hasattr(stock, method)]
 
     # Use joblib to parallelize the alpha calculations
-    results = Parallel(n_jobs=-1)(delayed(calculate_alpha)(stock, method, prefix) for method in valid_alpha_methods)
+    results = Parallel(n_jobs=jobs)(delayed(calculate_alpha)(stock, method, prefix) for method in valid_alpha_methods)
+
+    # Update the DataFrame with the results
+    for col_name, col_data in results:
+        df[col_name] = col_data
+
+    # Post-processing as before
+    for col in df.columns:
+        if col in ['date', 'close', 'open', 'high', 'low', 'volume']:
+            continue
+        if (df[col] > 10**30).any():
+            df[col] = df[col].apply(lambda x: x if x < 10**30 else np.nan)
+def calculate_alpha(stock, alpha_method, prefix):
+    return prefix + alpha_method, getattr(stock, alpha_method)()
+
+def get_alpha(df, prefix='%-', jobs=4):
+    stock = Alphas(df)
+
+    # Generate list of all possible alpha methods
+    all_alpha_methods = [f'alpha{i:03d}' for i in range(1, 102)]
+
+    # Filter methods based on their existence in the stock object
+    valid_alpha_methods = [method for method in all_alpha_methods if hasattr(stock, method)]
+
+    # Use joblib to parallelize the alpha calculations
+    results = Parallel(n_jobs=jobs)(delayed(calculate_alpha)(stock, method, prefix) for method in valid_alpha_methods)
 
     # Update the DataFrame with the results
     for col_name, col_data in results:
@@ -211,7 +236,7 @@ def get_alpha(df, prefix='%-'):
         if (df[col] > 10**30).any():
             df[col] = df[col].apply(lambda x: x if x < 10**30 else np.nan)
 
-    return df.replace([np.inf, -np.inf], np.nan).fillna(method='ffill').fillna(0)
+    return df.replace([np.inf, -np.inf], np.nan).ffill().fillna(0)
 
 class Alphas(object):
     def __init__(self, df_data):

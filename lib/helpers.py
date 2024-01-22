@@ -21,7 +21,6 @@ def calculate_speed(df: pd.DataFrame, target='close'):
 
     return df
 
-nb.jit
 def create_target(df, long, method='polyfit', polyfit_var='close', pct=0.1):
     if method == 'polyfit':
 
@@ -60,6 +59,49 @@ def create_target(df, long, method='polyfit', polyfit_var='close', pct=0.1):
 
     y = pd.DataFrame({'trend': trend_list, 'slope': slope_list, 'start_windows': start_list, 'end_windows': end_list})
     return y
+
+
+def calculate_slope(roll, index_l):
+    if roll.size < index_l.size:
+        return np.nan
+    slope = np.round(np.polyfit(index_l, roll, deg=1)[-2], decimals=8)
+    return slope
+
+def calculate_trend(roll, index_l):
+    if roll.size < index_l.size:
+        return np.nan
+    slope = np.round(np.polyfit(index_l, roll, deg=1)[-2], decimals=8)
+    return np.where(slope > 0, 1, np.where(slope == 0, 0, -1))
+
+def calculate_start(roll, index_l, original_index):
+    if roll.size < index_l.size:
+        return np.nan
+    return original_index[index_l[0]]
+
+def calculate_end(roll, index_l, original_index):
+    if roll.size < index_l.size:
+        return np.nan
+    return original_index[index_l[-1]]
+
+@nb.jit
+def create_target2(df, long, polyfit_var='hlc3'):
+    index_l = np.arange(long)
+    original_index = df.index
+    rolling_df = df[polyfit_var].rolling(window=long, min_periods=long)
+
+    slope_list = rolling_df.apply(calculate_slope, args=(index_l,))
+    trend_list = rolling_df.apply(calculate_trend, args=(index_l,))
+    start_list = rolling_df.apply(calculate_start, args=(index_l, original_index))
+    end_list = rolling_df.apply(calculate_end, args=(index_l, original_index))
+
+    y = pd.DataFrame({
+        'trend': trend_list,
+        'slope': slope_list,
+        'start_windows': start_list,
+        'end_windows': end_list
+    })
+    return y.dropna()
+
 
 nb.jit
 def create_lag(data: pd.DataFrame, lag_len: int, ignore_columns = ['trend', 'pmX_10_3_12_1', 'pmX_10_3_12_1_6H', 'pmX_10_3_12_1_1D', 'date', 'open', 'close', 'high', 'low']):
@@ -250,14 +292,15 @@ def split_data_oot(data, y, eval_date='2022-12-01', test_date='2022-12-14'):
 
     return train_data, train_y, eval_data, eval_y, test_data, test_y
 
-def create_col_trend(col, pred_target, df, method='polyfit'):
+def create_col_trend(col, pred_target, df, prefix='%-'):
     #if col == 'trend' or col.find('pmX') != -1 or col.find('date') != -1:
     #    return
-    trend_col = create_target(df, pred_target, method=method, polyfit_var=col)
+    # trend_col = create_target2(df, pred_target, polyfit_var=col)
+    trend_col = create_target(df, pred_target, polyfit_var=col)
     trend_col = (trend_col[['trend', 'slope', 'end_windows']].set_index('end_windows')
         .rename(columns={
-            'trend': col + '_trend',
-            'slope': col + '_slope'
+            'trend': prefix + col + '_trend',
+            'slope': prefix + col + '_slope'
             }
         ))
     return trend_col
