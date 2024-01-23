@@ -1,12 +1,15 @@
 {
-    "max_open_trades": 3,
-    "dry_run_wallet": 1000,
+    "max_open_trades": 4,
+    "dry_run_wallet": 4000,
     "add_config_files": [
         "TM3BinaryClass.base.json"
     ],
     "exchange": {
         "pair_whitelist": [
-            "BTC/USDT:USDT"
+            "BTC/USDT:USDT",
+            "ADA/USDT:USDT",
+            "SOL/USDT:USDT",
+            "DOT/USDT:USDT"
         ]
     },
 
@@ -14,10 +17,10 @@
 
     "sagemaster": {
         "CATBOOST_SELECT_FEATURES_ITERATIONS": 1000,
-        "CATBOOST_NUM_FEATURES_TO_SELECT": 2222,
+        "CATBOOST_NUM_FEATURES_TO_SELECT": 4096,
         "CATBOOST_SELECT_FEATURES_STEPS": 50,
 
-        "WANDB_PROJECT": "TM3-Live",
+        "WANDB_PROJECT": "TM3",
 
         "TARGET_EXTREMA_WINDOW": 3,
         "TARGET_EXTREMA_KERNEL": 6
@@ -26,7 +29,7 @@
     "freqai": {
         "train_period_days": 100,
         "label_period_candles": 6,
-        "identifier": "TM3_RANGE_1h_1803",
+        "identifier": "TM3_RANGE_1h_2204",
         "data_kitchen_thread_count": 10,
         "feature_parameters" : {
             "target_slope_filter": 0,
@@ -39,8 +42,8 @@
             "test_size": 0.12
         },
         "model_training_parameters": {
-            "thread_count": 10,
-            "logging_level": "Verbose"
+            "thread_count": 16,
+            "logging_level": "Silent"
         }
     },
     "internals": {

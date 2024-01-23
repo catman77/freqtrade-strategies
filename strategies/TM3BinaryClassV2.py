@@ -201,6 +201,10 @@ class TM3BinaryClassV2(IStrategy):
     def TARGET_EXTREMA_WINDOW(self):
         return self.config["sagemaster"].get('TARGET_EXTREMA_WINDOW', 5)
 
+    @property
+    def data_kitchen_thread_count(self):
+        return self.config["freqai"].get("data_kitchen_thread_count", 4)
+
     def bot_start(self, **kwargs) -> None:
         print("bot_start")
 
@@ -216,9 +220,8 @@ class TM3BinaryClassV2(IStrategy):
         all_cols = [col for col in df.columns if re.match(regex_pattern, col)]
 
         # # Parallel Processing
-        n_jobs = self.config["freqai"].get("data_kitchen_thread_count", 4)
-        result_cols = Parallel(n_jobs=n_jobs)(
-            delayed(helpers.create_col_trend)(col, self.PREDICT_TARGET, df) for col in all_cols
+        result_cols = Parallel(n_jobs=self.data_kitchen_thread_count)(
+            delayed(helpers.create_col_trend)(col, self.PREDICT_TARGET, df[[col]]) for col in all_cols
         )
         # # Using DataFrame apply
         # result_cols = []
@@ -335,7 +338,7 @@ class TM3BinaryClassV2(IStrategy):
         self.log(f"ENTER .feature_engineering_alphas101(): {metadata} {df.shape}")
         start_time = time.time()
 
-        df = get_alpha(df)
+        df = get_alpha(df, n_jobs=self.data_kitchen_thread_count)
 
         self.log(f"EXIT .feature_engineering_alphas101() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
         return df
@@ -468,7 +471,7 @@ class TM3BinaryClassV2(IStrategy):
         # atr = talib.ATR(df['high'], df['low'], df['close'], timeperiod=100) / df['close']
 
         # target: trend slope
-        kernel = 25
+        kernel = 12
         df.set_index(df['date'], inplace=True)
         target = helpers.create_target(df, kernel,
                                        method='polyfit', polyfit_var=self.TARGET_VAR)
@@ -575,6 +578,7 @@ class TM3BinaryClassV2(IStrategy):
 
         # add slope indicators
         df = self.add_slope_indicator(df, 'ohlc4_log', self.PREDICT_TARGET)
+        df = self.add_slope_indicator(df, 'ohlc4_log', 12)
         df = self.add_slope_indicator(df, 'ohlc4_log', 25)
         df = self.add_slope_indicator(df, 'ohlc4_log', 50)
 

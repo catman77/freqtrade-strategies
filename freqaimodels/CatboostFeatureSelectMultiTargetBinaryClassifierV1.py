@@ -3,6 +3,7 @@ import json
 import logging
 import sys
 from pathlib import Path
+import time
 from typing import Any, Dict
 import sdnotify
 
@@ -24,6 +25,7 @@ import wandb
 from freqaimodels.MultiOutputClassifierWithFeatureSelect import MultiOutputClassifierWithFeatureSelect
 from sklearn.metrics import roc_auc_score, f1_score, log_loss, balanced_accuracy_score
 import pickle
+import scipy as spy
 
 
 logger = logging.getLogger(__name__)
@@ -328,18 +330,21 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
 
         return (pred_df, dk.do_predict)
 
-    def define_data_pipeline(self, threads) -> Pipeline:
+    def define_data_pipeline(self, threads = 10) -> Pipeline:
         """
         User defines their custom feature pipeline here (if they wish)
         """
+        ft_params = self.freqai_info["feature_parameters"]
+        di = ft_params.get("DI_threshold", 0)
         feature_pipeline = Pipeline([
+            # ('const', ds.VarianceThreshold(threshold=0)),
             ('scaler', SKLearnWrapper(RobustScaler())),
-            ('di', ds.DissimilarityIndex(di_threshold=10, n_jobs=threads))
+            ('di', ds.DissimilarityIndex(di_threshold=di, n_jobs=threads))
         ])
 
         return feature_pipeline
 
-    def define_label_pipeline(self, threads) -> Pipeline:
+    def define_label_pipeline(self, threads = 10) -> Pipeline:
         """
         User defines their custom label pipeline here (if they wish)
         """
@@ -348,3 +353,31 @@ class CatboostFeatureSelectMultiTargetBinaryClassifierV1(BaseClassifierModel):
         ])
 
         return label_pipeline
+
+
+    def fit_live_predictions(self, dk: FreqaiDataKitchen, pair: str) -> None:
+        log(f'.fit_live_predictions with model = {self.MODEL_IDENTIFIER}')
+
+        num_candles = self.freqai_info.get('fit_live_predictions_candles', 100)
+
+        pred_df_full = self.dd.historic_predictions[pair].tail(num_candles).reset_index(drop=True)
+
+        # add classes from classifier label types if used
+        full_labels = dk.label_list + dk.unique_class_list
+
+        dk.data["labels_mean"], dk.data["labels_std"] = {}, {}
+        for ft in full_labels:
+            dk.data['labels_std'][ft] = 0  # f[1]
+            dk.data['labels_mean'][ft] = 0  # f[0]
+
+        f = spy.stats.weibull_min.fit(pred_df_full['DI_values'])
+        cutoff = spy.stats.weibull_min.ppf(0.999, *f)
+
+        dk.data["DI_value_mean"] = pred_df_full['DI_values'].mean()
+        dk.data["DI_value_std"] = pred_df_full['DI_values'].std()
+        dk.data['extra_returns_per_train']['DI_value_param1'] = f[0]
+        dk.data['extra_returns_per_train']['DI_value_param2'] = f[1]
+        dk.data['extra_returns_per_train']['DI_value_param3'] = f[2]
+        dk.data['extra_returns_per_train']['DI_cutoff'] = cutoff
+
+        log(f"DI_value_mean = {dk.data['DI_value_mean']}, DI_value_std = {dk.data['DI_value_std']}, DI_value_param1 = {f[0]}, DI_value_param2 = {f[1]}, DI_value_param3 = {f[2]}, DI_cutoff = {cutoff}")

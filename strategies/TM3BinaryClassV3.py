@@ -1,4 +1,5 @@
 # add common folders to path
+import re
 import sys
 import os
 
@@ -139,7 +140,7 @@ class TM3BinaryClassV3(IStrategy):
     """
 
     def heartbeat(self):
-        sdnotify.SystemdNotifier().notify("WATCHDOG=1")
+        sdnotify.SystemdNotifier().notify("WATCHDOG=1\nSTATUS=State: RUNNING.")
 
     def log(self, msg, *args, **kwargs):
         self.heartbeat()
@@ -200,51 +201,40 @@ class TM3BinaryClassV3(IStrategy):
     def TARGET_EXTREMA_WINDOW(self):
         return self.config["sagemaster"].get('TARGET_EXTREMA_WINDOW', 5)
 
+    @property
+    def data_kitchen_thread_count(self):
+        return self.config["freqai"].get("data_kitchen_thread_count", 4)
+
     def bot_start(self, **kwargs) -> None:
         print("bot_start")
 
         if (self.PREDICT_STORAGE_ENABLED):
             self.ps = PredictionStorage(connection_string=self.config["sagemaster"].get("PREDICT_STORAGE_CONN_STRING"))
 
-    def feature_engineering_trend(self, df: DataFrame, metadata, **kwargs):
+    def feature_engineering_trend(self, df: pd.DataFrame, metadata, **kwargs):
         self.log(f"ENTER .feature_engineering_trend() {metadata} {df.shape}")
         start_time = time.time()
 
-        # Trends for indicators
-        all_cols = filter(lambda col:
-            (col != 'trend')
-            and col.find('pmX') == -1
-            and col.find('date') == -1
-            and col.find('_signal') == -1
-            and col.find('_trend') == -1
-            and col.find('_rising') == -1
-            and col.find('_std') == -1
-            and col.find('_change_') == -1
-            and col.find('_lower_band') == -1
-            and col.find('_upper_band') == -1
-            and col.find('_upper_envelope') == -1
-            and col.find('_lower_envelope') == -1
-            and col.find('%-dist_to_') == -1
-            and col.find('%-s1') == -1
-            and col.find('%-s2') == -1
-            and col.find('%-s3') == -1
-            and col.find('%-r1') == -1
-            and col.find('%-r2') == -1
-            and col.find('%-r3') == -1
-            and col.find('_divergence') == -1, df.columns)
+        # Optimized Column Filtering using Regular Expression
+        regex_pattern = r'^(?!.*(pmX|date|_signal|_trend|_rising|_std|_change_|_lower_band|_upper_band|_upper_envelope|_lower_envelope|%-dist_to_|%-s[123]|%-r[123]|_divergence)).*$'
+        all_cols = [col for col in df.columns if re.match(regex_pattern, col)]
 
-        results = []
-        result_cols = []
-        # launch all processes
-        # Use Parallel and delayed for multiprocessing
-        result_cols = Parallel(n_jobs=self.config["freqai"].get("data_kitchen_thread_count", 4))(
-            delayed(helpers.create_col_trend)(col, self.PREDICT_TARGET, df, "polyfit") for col in all_cols
+        # # Parallel Processing
+        result_cols = Parallel(n_jobs=self.data_kitchen_thread_count)(
+            delayed(helpers.create_col_trend)(col, self.PREDICT_TARGET, df[[col]]) for col in all_cols
         )
+        # # Using DataFrame apply
+        # result_cols = []
+        # for col in all_cols:
+        #     # try:
+        #     trend_col = helpers.create_col_trend(col, self.PREDICT_TARGET, df)
+        #     result_cols.append(trend_col)
+        #     # except Exception as e:
+        #     # self.log(f"Error processing column {col}: {e}")
+        #         # continue
 
-        # Combine results
+        # Memory Efficient Concatenation
         result_df = pd.concat(result_cols, axis=1)
-        result_df.columns = ["%-"+x for x in result_df.columns]
-
         df = pd.concat([df, result_df], axis=1)
 
         self.log(f"EXIT .feature_engineering_trend() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
@@ -348,7 +338,7 @@ class TM3BinaryClassV3(IStrategy):
         self.log(f"ENTER .feature_engineering_alphas101(): {metadata} {df.shape}")
         start_time = time.time()
 
-        df = get_alpha(df)
+        df = get_alpha(df, n_jobs=self.data_kitchen_thread_count)
 
         self.log(f"EXIT .feature_engineering_alphas101() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
         return df
@@ -479,58 +469,38 @@ class TM3BinaryClassV3(IStrategy):
         df = candle_stats(df)
 
         # target: trend slope
-        kernel = 25
-        df.set_index(df['date'], inplace=True)
-        target = helpers.create_target(df, kernel,
-                                       method='polyfit', polyfit_var=self.TARGET_VAR)
-        target = target.set_index('start_windows')
-        scaled_slope = RobustScaler().fit_transform(target['slope'].values.reshape(-1, 1)).reshape(-1)
-        target['scaled_slope'] = scaled_slope
-        # align index
-        target = target.reindex(df.index)
-        # set trend target
-        df['trend_slope'] = np.nan
-        df['trend_slope'] = target['scaled_slope']
-        # reset index and get back
-        df = df.reset_index(drop=True)
+        # kernel = 12
+        # df.set_index(df['date'], inplace=True)
+        # target = helpers.create_target(df, kernel,
+        #                                method='polyfit', polyfit_var=self.TARGET_VAR)
+        # target = target.set_index('start_windows')
+        # scaled_slope = RobustScaler().fit_transform(target['slope'].values.reshape(-1, 1)).reshape(-1)
+        # target['scaled_slope'] = scaled_slope
+        # # align index
+        # target = target.reindex(df.index)
+        # # set trend target
+        # df['trend_slope'] = np.nan
+        # df['trend_slope'] = target['scaled_slope']
+        # # reset index and get back
+        # df = df.reset_index(drop=True)
 
-        ## Classify trend
-        slope_filter = self.freqai_info["feature_parameters"]["target_slope_filter"]
-        df['&-trend_long'] = np.where(df['trend_slope'] > slope_filter, 'trend_long', 'trend_not_long')
-        df['&-trend_short'] = np.where(df['trend_slope'] < -slope_filter, 'trend_short', 'trend_not_short')
-
-
-        # target: trend slope
-        df.set_index(df['date'], inplace=True)
-        target = helpers.create_target(df, 50,
-                                       method='polyfit', polyfit_var=self.TARGET_VAR)
-        target = target.set_index('start_windows')
-        scaled_slope = RobustScaler().fit_transform(target['slope'].values.reshape(-1, 1)).reshape(-1)
-        target['scaled_slope'] = scaled_slope
-        # align index
-        target = target.reindex(df.index)
-        # set trend target
-        df['trend_slope_50'] = np.nan
-        df['trend_slope_50'] = target['scaled_slope']
-        # reset index and get back
-        df = df.reset_index(drop=True)
-
-        ## Classify trend
-        slope_filter = self.freqai_info["feature_parameters"]["target_slope_filter"]
-        df['&-trend_long_50'] = np.where(df['trend_slope_50'] > slope_filter, 'trend_long_50', 'trend_not_long_50')
-        df['&-trend_short_50'] = np.where(df['trend_slope_50'] < -slope_filter, 'trend_short_50', 'trend_not_short_50')
+        # ## Classify trend
+        # slope_filter = self.freqai_info["feature_parameters"]["target_slope_filter"]
+        # df['&-trend_long'] = np.where(df['trend_slope'] > slope_filter, 'trend_long', 'trend_not_long')
+        # df['&-trend_short'] = np.where(df['trend_slope'] < -slope_filter, 'trend_short', 'trend_not_short')
 
 
         # # target: expected range 12h
-        # range_kernel = 12
-        # max_range = df["high"].shift(-range_kernel).rolling(range_kernel).max() / df["close"] - 1
-        # min_range = df["low"].shift(-range_kernel).rolling(range_kernel).min() / df["close"] - 1
-        # tresh = atr * 2
-        # df['&-trend_long-12'] = np.where(max_range > tresh, "trend_long-12", "trend_not_long-12")
-        # df['&-trend_short-12'] = np.where(min_range < -tresh, "trend_short-12", "trend_not_short-12")
+        atr = talib.ATR(df['high'], df['low'], df['close'], timeperiod=100) / df['close']
+        range_kernel = 12
+        max_range = df["close"].shift(-range_kernel).rolling(range_kernel).max() / df["close"] - 1
+        min_range = df["close"].shift(-range_kernel).rolling(range_kernel).min() / df["close"] - 1
+        tresh = atr * 1
+        df['&-trend_long'] = np.where(max_range > tresh, "trend_long", "trend_not_long")
+        df['&-trend_short'] = np.where(min_range < -tresh, "trend_short", "trend_not_short")
 
-        # print(df['&-trend_long-12'].value_counts())
-        # print(df['&-trend_short-12'].value_counts())
+        print(df['&-trend_long'].value_counts())
+        print(df['&-trend_short'].value_counts())
 
         # target: extrema
         df['extrema'] = 0
@@ -607,6 +577,7 @@ class TM3BinaryClassV3(IStrategy):
 
         # add slope indicators
         df = self.add_slope_indicator(df, 'ohlc4_log', self.PREDICT_TARGET)
+        df = self.add_slope_indicator(df, 'ohlc4_log', 12)
         df = self.add_slope_indicator(df, 'ohlc4_log', 25)
         df = self.add_slope_indicator(df, 'ohlc4_log', 50)
 
@@ -703,7 +674,7 @@ class TM3BinaryClassV3(IStrategy):
     def signal_minima_pullback(self, df: DataFrame):
         return (
             (df['minima'] >= 0.9) &
-            (df['trend_long'] >= 0.2) &
+            (df['trend_long'] >= 0.6) &
             (df['maxima'] <= 0.4) &
             (df['trend_short'] <= 0.4)
         )
