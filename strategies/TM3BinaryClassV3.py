@@ -657,50 +657,50 @@ class TM3BinaryClassV3(IStrategy):
 
     # def signal_good_long(self, df: DataFrame):
     #     return (
-    #         (df['minima_tm3_1h'] >= 0.5) &
-    #         (df['trend_long_tm3_1h'] >= 0.8) &
-    #         (df['maxima_tm3_1h'] <= 0.3) &
-    #         (df['trend_short_tm3_1h'] <= 0.2)
+    #         (df['minima'] >= 0.5) &
+    #         (df['trend_long'] >= 0.8) &
+    #         (df['maxima'] <= 0.3) &
+    #         (df['trend_short'] <= 0.2)
     #     )
 
     # def signal_super_long(self, df: DataFrame):
     #     return (
-    #         (df['minima_tm3_1h'] >= 0.8) &
-    #         (df['trend_long_tm3_1h'] >= 0.8) &
-    #         (df['maxima_tm3_1h'] <= 0.5) &
-    #         (df['trend_short_tm3_1h'] <= 0.2)
+    #         (df['minima'] >= 0.8) &
+    #         (df['trend_long'] >= 0.8) &
+    #         (df['maxima'] <= 0.5) &
+    #         (df['trend_short'] <= 0.2)
     #     )
 
     # def signal_minima_pullback(self, df: DataFrame):
     #     return (
-    #         (df['minima_tm3_1h'] >= 0.9) &
-    #         (df['trend_long_tm3_1h'] >= 0.2) &
-    #         (df['maxima_tm3_1h'] <= 0.4) &
-    #         (df['trend_short_tm3_1h'] <= 0.2)
+    #         (df['minima'] >= 0.9) &
+    #         (df['trend_long'] >= 0.2) &
+    #         (df['maxima'] <= 0.4) &
+    #         (df['trend_short'] <= 0.2)
     #     )
 
     def signal_scalp_long(self, df: DataFrame):
         return (
-            (df['minima_tm3_1h'] >= 0.5) &
-            (df['trend_long_tm3_1h'] >= 0.6) &
-            (df['maxima_tm3_1h'] <= 0.2) &
-            (df['trend_short_tm3_1h'] <= 0.1)
+            (df['minima'] >= 0.5) &
+            (df['trend_long'] >= 0.6) &
+            (df['maxima'] <= 0.2) &
+            (df['trend_short'] <= 0.1)
         )
 
     # def signal_maxima_pullback(self, df: DataFrame):
     #     return (
-    #         (df['maxima_tm3_1h'] >= 0.7) &
-    #         (df['trend_short_tm3_1h'] >= 0.6) &
-    #         (df['minima_tm3_1h'] <= 0.3) &
-    #         (df['trend_long_tm3_1h'] <= 0.2)
+    #         (df['maxima'] >= 0.7) &
+    #         (df['trend_short'] >= 0.6) &
+    #         (df['minima'] <= 0.3) &
+    #         (df['trend_long'] <= 0.2)
     #     )
 
     # def signal_strong_short(self, df: DataFrame):
     #     return (
-    #         (df['maxima_tm3_1h'] >= 0.4) &
-    #         (df['trend_short_tm3_1h'] >= 0.8) &
-    #         (df['minima_tm3_1h'] <= 0.3) &
-    #         (df['trend_long_tm3_1h'] <= 0.2)
+    #         (df['maxima'] >= 0.4) &
+    #         (df['trend_short'] >= 0.8) &
+    #         (df['minima'] <= 0.3) &
+    #         (df['trend_long'] <= 0.2)
     #     )
 
     def signal_scalp_short(self, df: DataFrame):

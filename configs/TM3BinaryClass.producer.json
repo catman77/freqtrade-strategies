@@ -28,7 +28,9 @@
             "AVAX/USDT:USDT",
             "DOGE/USDT:USDT",
             "DOT/USDT:USDT",
-            "MATIC/USDT:USDT"
+            "MATIC/USDT:USDT",
+            "TRX/USDT:USDT",
+            "LINK/USDT:USDT"
         ],
         "pair_blacklist": []
     },
@@ -37,19 +39,24 @@
 
     "sagemaster": {
         "CATBOOST_SELECT_FEATURES_ITERATIONS": 1000,
-        "CATBOOST_NUM_FEATURES_TO_SELECT": 2213,
+        "CATBOOST_NUM_FEATURES_TO_SELECT": 4096,
         "CATBOOST_SELECT_FEATURES_STEPS": 100,
         "CATBOOST_AUTODETECT_NUM_FEATURES_TO_SELECT": false,
 
+        "WANDB_PROJECT": "TM3-Live",
+
         "PREDICT_STORAGE_ENABLED": true,
-        "PREDICT_STORAGE_CONN_STRING": "mssql+pyodbc://mastergpt:gptMas12!@mastergpt.database.windows.net/mastergpt?driver=ODBC+Driver+18+for+SQL+Server"
+        "PREDICT_STORAGE_CONN_STRING": "mssql+pyodbc://mastergpt:gptMas12!@mastergpt.database.windows.net/mastergpt?driver=ODBC+Driver+18+for+SQL+Server",
+
+        "TARGET_EXTREMA_WINDOW": 3,
+        "TARGET_EXTREMA_KERNEL": 6
     },
 
     "freqai": {
         "train_period_days": 100,
         "backtest_period_days": 1,
         "label_period_candles": 6,
-        "identifier": "TM3_1503",
+        "identifier": "TM3_1505",
         "data_kitchen_thread_count": 20,
         "feature_parameters" : {
             "target_slope_filter": 0,
@@ -78,5 +85,10 @@
         "username": "tm3producer",
         "password": "GameOver42",
         "ws_token": "Rd4DRwjAkQV77slBC-FIK_Ac3inRUysOfw"
+    },
+    "telegram": {
+        "enabled": true,
+        "token": "6578256892:AAH8wms25vk7iqJs3qck4lpvgj1FqiE-qjw",
+        "chat_id": "47319110"
     }
 }
