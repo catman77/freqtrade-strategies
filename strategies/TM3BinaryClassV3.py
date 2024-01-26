@@ -705,10 +705,10 @@ class TM3BinaryClassV3(IStrategy):
 
     def signal_scalp_short(self, df: DataFrame):
         return (
-            (df['maxima_tm3_1h'] >= 0.7) &
-            (df['trend_short_tm3_1h'] >= 0.7) &
-            (df['minima_tm3_1h'] <= 0.5) &
-            (df['trend_long_tm3_1h'] <= 0.2)
+            (df['maxima'] >= 0.7) &
+            (df['trend_short'] >= 0.7) &
+            (df['minima'] <= 0.5) &
+            (df['trend_long'] <= 0.2)
         )
 
 

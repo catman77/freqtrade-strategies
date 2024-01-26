@@ -468,7 +468,6 @@ class TM3BinaryClass(IStrategy):
 
         df = candle_stats(df)
 
-
         # target: trend slope
         df.set_index(df['date'], inplace=True)
         target = helpers.create_target(df, self.PREDICT_TARGET,
@@ -602,7 +601,8 @@ class TM3BinaryClass(IStrategy):
         self.log(f"{metadata['pair']}: extrema_minima_f1={last_candle['&-extrema_minima_f1']:.2f}")
         self.log(f"{metadata['pair']}: extrema_minima_logloss={last_candle['&-extrema_minima_logloss']:.2f}")
         self.log(f"{metadata['pair']}: extrema_minima_accuracy={last_candle['&-extrema_minima_accuracy']:.2f}")
-
+        self.log(f"{metadata['pair']}: DI_value_param1={last_candle['DI_value_param1']:.2f}")
+        self.log(f"{metadata['pair']}: DI_cutoff={last_candle['DI_cutoff']:.2f}")
 
         df['atr'] = talib.ATR(df['high'], df['low'], df['close'], timeperiod=100)
 
@@ -698,7 +698,7 @@ class TM3BinaryClass(IStrategy):
             (df['maxima'] >= 0.7) &
             (df['trend_short'] >= 0.7) &
             (df['minima'] <= 0.5) &
-            (df['trend_long'] <= 0.5)
+            (df['trend_long'] <= 0.2)
         )
 
 
