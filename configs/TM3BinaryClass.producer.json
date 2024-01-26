@@ -56,10 +56,38 @@
         "train_period_days": 100,
         "backtest_period_days": 1,
         "label_period_candles": 6,
-        "identifier": "TM3_1505",
+        "identifier": "TM3_1506",
         "data_kitchen_thread_count": 20,
+
+        "extra_returns_per_train": {
+            "&-trend_long_roc_auc": -1,
+            "&-trend_long_f1": -1,
+            "&-trend_long_logloss": -1,
+            "&-trend_long_accuracy": -1,
+
+            "&-trend_short_roc_auc": -1,
+            "&-trend_short_f1": -1,
+            "&-trend_short_logloss": -1,
+            "&-trend_short_accuracy": -1,
+
+            "&-extrema_maxima_roc_auc": -1,
+            "&-extrema_maxima_f1": -1,
+            "&-extrema_maxima_logloss": -1,
+            "&-extrema_maxima_accuracy": -1,
+
+            "&-extrema_minima_roc_auc": -1,
+            "&-extrema_minima_f1": -1,
+            "&-extrema_minima_logloss": -1,
+            "&-extrema_minima_accuracy": -1,
+
+            "DI_value_param1": 0,
+            "DI_value_param2": 0,
+            "DI_value_param3": 0,
+            "DI_cutoff": 2
+        },
+
         "feature_parameters" : {
-            "target_slope_filter": 0,
+            "target_slope_filter": 0.06,
 
             "include_timeframes": [
                 "4h", "1d"

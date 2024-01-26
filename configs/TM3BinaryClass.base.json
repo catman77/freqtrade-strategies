@@ -83,7 +83,7 @@
     "freqai": {
         "enabled": true,
         "purge_old_models": true,
-        "train_period_days": 125,
+        "train_period_days": 100,
         "backtest_period_days": 3,
         "live_retrain_hours": 24,
         "expiration_hours": 48,
@@ -113,7 +113,12 @@
             "&-extrema_minima_roc_auc": -1,
             "&-extrema_minima_f1": -1,
             "&-extrema_minima_logloss": -1,
-            "&-extrema_minima_accuracy": -1
+            "&-extrema_minima_accuracy": -1,
+
+            "DI_value_param1":0,
+            "DI_value_param2":0,
+            "DI_value_param3":0,
+            "DI_cutoff": 2
         },
         "identifier": "TM3BC_1317",
         "feature_parameters" : {
