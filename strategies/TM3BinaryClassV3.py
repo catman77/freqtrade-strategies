@@ -708,7 +708,7 @@ class TM3BinaryClassV3(IStrategy):
             (df['maxima_tm3_1h'] >= 0.7) &
             (df['trend_short_tm3_1h'] >= 0.7) &
             (df['minima_tm3_1h'] <= 0.5) &
-            (df['trend_long_tm3_1h'] <= 0.5)
+            (df['trend_long_tm3_1h'] <= 0.2)
         )
 
 

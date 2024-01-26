@@ -277,10 +277,10 @@ class TM3Consumer(IStrategy):
 
     def signal_scalp_long(self, df: DataFrame):
         return (
-            (df['minima_tm3_1h'] >= 0.5) &
+            (df['minima_tm3_1h'] >= 0.3) &
             (df['trend_long_tm3_1h'] >= 0.6) &
             (df['maxima_tm3_1h'] <= 0.2) &
-            (df['trend_short_tm3_1h'] <= 0.1)
+            (df['trend_short_tm3_1h'] <= 0.2)
         )
 
     # def signal_maxima_pullback(self, df: DataFrame):
@@ -304,7 +304,7 @@ class TM3Consumer(IStrategy):
             (df['maxima_tm3_1h'] >= 0.7) &
             (df['trend_short_tm3_1h'] >= 0.7) &
             (df['minima_tm3_1h'] <= 0.5) &
-            (df['trend_long_tm3_1h'] <= 0.5)
+            (df['trend_long_tm3_1h'] <= 0.2)
         )
 
 
