@@ -4,53 +4,30 @@ import os
 
 import talib
 
-from freqtrade.exchange.exchange_utils import timeframe_to_prev_date
-from freqtrade.strategy.strategy_helper import stoploss_from_absolute, stoploss_from_open
+from freqtrade.strategy.strategy_helper import stoploss_from_open
 from freqtrade.strategy.strategy_helper import merge_informative_pair
 
 ROOT_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(ROOT_DIR)
 
 import sdnotify
-from freqtrade.enums.runmode import RunMode
-from typing import Dict, List, Optional
-from lib.ma import MovingAveragesCalculate, MovingAveragesCalculator2
-from lib.mom import MomentumANDVolatilityCalculate
-from lib.cycle import CycleCalculate
-from lib.trend import TrendCalculate
-from lib.oscillators import OscillatorsCalculate
+from typing import Optional
 from lib import helpers
-from lib.sagemaster import SageMasterClient
-from lib.Alpha101 import get_alpha
-from scipy.special import softmax
-
-import lib.glassnode as gn
 
 import warnings
-import json
 import logging
-from functools import reduce
 import time
 import numpy as np
-from technical.pivots_points import pivots_points
 
 import pandas as pd
-from pandas import DataFrame, Series
+from pandas import DataFrame
 from freqtrade.persistence.trade_model import Trade
 from freqtrade.strategy import IStrategy
-from freqtrade.strategy.parameters import BooleanParameter, DecimalParameter, IntParameter
-from datetime import timedelta, datetime, timezone
-from freqtrade.optimize.space import Categorical, Dimension, Integer, SKDecimal
-import talib.abstract as ta
-from sqlalchemy import desc
-from sklearn.preprocessing import StandardScaler, RobustScaler
+from datetime import datetime
+from sklearn.preprocessing import RobustScaler
 from scipy.signal import argrelextrema
-from joblib import Parallel, delayed
 
-from technical import qtpylib
-import pandas_ta as pta
 from freqtrade.exchange import timeframe_to_minutes
-from lib.prediction_storage import PredictionStorage
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +107,8 @@ class TM3Consumer(IStrategy):
         }
 
     minimal_roi = {
-        "0": 0.06 # Target: RR 2:1
+        "0": 0.06, # Target: RR 2:1
+        "720": 0.001   # Trade expired after 12 hours, exit in breakeven
     }
 
     process_only_new_candles = False
@@ -205,7 +183,12 @@ class TM3Consumer(IStrategy):
         '&-extrema_minima_roc_auc',
         '&-extrema_minima_f1',
         '&-extrema_minima_logloss',
-        '&-extrema_minima_accuracy'
+        '&-extrema_minima_accuracy',
+        "DI_value_param1",
+        "DI_value_param2",
+        "DI_value_param3",
+        "DI_values",
+        "DI_cutoff"
     ]
 
     def populate_indicators(self, df: DataFrame, metadata: dict) -> DataFrame:
@@ -259,13 +242,13 @@ class TM3Consumer(IStrategy):
     #         (df['trend_short_tm3_1h'] <= 0.2)
     #     )
 
-    # def signal_super_long(self, df: DataFrame):
-    #     return (
-    #         (df['minima_tm3_1h'] >= 0.8) &
-    #         (df['trend_long_tm3_1h'] >= 0.8) &
-    #         (df['maxima_tm3_1h'] <= 0.5) &
-    #         (df['trend_short_tm3_1h'] <= 0.2)
-    #     )
+    def signal_super_long(self, df: DataFrame):
+        return (
+            (df['minima_tm3_1h'] >= 0) &
+            (df['trend_long_tm3_1h'] >= 0.9) &
+            (df['maxima_tm3_1h'] <= 0.1) &
+            (df['trend_short_tm3_1h'] <= 0.1)
+        )
 
     # def signal_minima_pullback(self, df: DataFrame):
     #     return (
@@ -291,13 +274,13 @@ class TM3Consumer(IStrategy):
     #         (df['trend_long_tm3_1h'] <= 0.2)
     #     )
 
-    # def signal_strong_short(self, df: DataFrame):
-    #     return (
-    #         (df['maxima_tm3_1h'] >= 0.4) &
-    #         (df['trend_short_tm3_1h'] >= 0.8) &
-    #         (df['minima_tm3_1h'] <= 0.3) &
-    #         (df['trend_long_tm3_1h'] <= 0.2)
-    #     )
+    def signal_super_short(self, df: DataFrame):
+        return (
+            (df['maxima_tm3_1h'] >= 0) &
+            (df['trend_short_tm3_1h'] >= 0.9) &
+            (df['minima_tm3_1h'] <= 0.1) &
+            (df['trend_long_tm3_1h'] <= 0.1)
+        )
 
     def signal_scalp_short(self, df: DataFrame):
         return (
@@ -312,9 +295,9 @@ class TM3Consumer(IStrategy):
         ## LONG signals
 
         # super long
-        # df.loc[(
-        #     self.signal_super_long(df)
-        # ), ['enter_long', 'enter_tag']] = (1, 'super_long')
+        df.loc[(
+            self.signal_super_long(df)
+        ), ['enter_long', 'enter_tag']] = (1, 'super_long')
 
         # # good long
         # df.loc[(
@@ -338,10 +321,10 @@ class TM3Consumer(IStrategy):
         #     self.signal_maxima_pullback(df)
         # ), ['enter_short', 'enter_tag']] = (1, 'maxima_pullback')
 
-        # # strong short
-        # df.loc[(
-        #     self.signal_strong_short(df)
-        # ), ['enter_short', 'enter_tag']] = (1, 'strong_short')
+        # super short
+        df.loc[(
+            self.signal_super_short(df)
+        ), ['enter_short', 'enter_tag']] = (1, 'super_short')
 
         # scalp short
         df.loc[(
@@ -355,24 +338,20 @@ class TM3Consumer(IStrategy):
         # LONGS
         df.loc[(
             self.signal_scalp_short(df)
-        ), ['exit_long', 'exit_tag']] = (1, 'exit_scap_short')
+        ), ['exit_long', 'exit_tag']] = (1, 'exit_scalp_short')
 
-        # df.loc[(
-        #     self.signal_maxima_pullback(df)
-        # ), ['exit_long', 'exit_tag']] = (1, 'exit_maxima_pullback')
+        df.loc[(
+            (df['trend_short_tm3_1h'] >= 0.8) & (df['trend_long_tm3_1h'] <= 0.2)
+        ), ['exit_long', 'exit_tag']] = (1, 'achtung_strong_short')
 
         # SHORTS
         df.loc[(
             self.signal_scalp_long(df)
-        ), ['exit_short', 'exit_tag']] = (1, 'exit_good_long')
+        ), ['exit_short', 'exit_tag']] = (1, 'exit_scalp_long')
 
-        # df.loc[(
-        #     self.signal_super_long(df)
-        # ), ['exit_short', 'exit_tag']] = (1, 'exit_super_long')
-
-        # df.loc[(
-        #     self.signal_minima_pullback(df)
-        # ), ['exit_short', 'exit_tag']] = (1, 'exit_minima_pullback')
+        df.loc[(
+            (df['trend_long_tm3_1h'] >= 0.8) & (df['trend_short_tm3_1h'] <= 0.2)
+        ), ['exit_short', 'exit_tag']] = (1, 'achtung_strong_long')
 
         return df
 
@@ -420,24 +399,47 @@ class TM3Consumer(IStrategy):
             return roi_result
 
         # 2. Check trend & extrema
+
+        ### LONG
+        # strong maxima
         if is_long and last_candle['maxima_tm3_1h'] >= 0.7 and is_profitable:
-            return "almost_maxima"
+            return "strong_maxima"
 
+        # strong short
         if is_long and last_candle['trend_short_tm3_1h'] >= 0.7 and is_profitable:
-            return "trend_reverse_to_short"
+            return "strong_short"
 
+        # weak trend reverse
+        if is_long and last_candle['trend_short_tm3_1h'] >= 0.6 and last_candle['trend_long_tm3_1h'] <= 0.4 and is_profitable:
+            return "reverse_to_short"
+
+        # no confidence in long and short is probable
+        if is_long and last_candle['trend_short_tm3_1h'] >= 0.5 and last_candle['trend_long_tm3_1h'] <= 0.2 and is_profitable:
+            return "no_confidence_in_long"
+
+        ### SHORT
+        # strong minima
         if is_short and last_candle['minima_tm3_1h'] >= 0.7 and is_profitable:
-            return "almost_minima"
+            return "strong_minima"
 
+        # strong long
         if is_short and last_candle['trend_long_tm3_1h'] >= 0.7 and is_profitable:
-            return "trend_reserse_to_long"
+            return "strong_long"
+
+        # weak trend reverse
+        if is_short and last_candle['trend_long_tm3_1h'] >= 0.6 and last_candle['trend_short_tm3_1h'] <= 0.4 and is_profitable:
+            return "reverse_to_long"
+
+        # no confidence in short and long is probable
+        if is_short and last_candle['trend_long_tm3_1h'] >= 0.5 and last_candle['trend_short_tm3_1h'] <= 0.2 and is_profitable:
+            return "no_confidence_in_short"
 
         # 3. custom exit per enter_tag
         if trade.enter_tag == "scalp_long" and current_profit >= 0.03:
             return "scalp_long_tp"
 
         if trade.enter_tag == "scalp_short" and current_profit >= 0.03:
-            return "scalp_long_tp"
+            return "scalp_short_tp"
 
 
     ####
