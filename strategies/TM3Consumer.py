@@ -388,12 +388,8 @@ class TM3Consumer(IStrategy):
         if profit_dist > 0.01:
             return stoploss_from_open(0.001, current_profit, is_short=trade.is_short, leverage=trade.leverage)
 
-        # # stoploss 1% for scalp_long trade
-        # if trade.enter_tag == "scalp_long":
-        #     return stoploss_from_open(-0.01, current_profit, is_short=trade.is_short, leverage=trade.leverage)
-
-        # if trade.enter_tag == "scalp_short":
-        #     return stoploss_from_open(-0.01, current_profit, is_short=trade.is_short, leverage=trade.leverage)
+        if trade.enter_tag == "maxima_pullback":
+            return stoploss_from_open(-0.02, current_profit, is_short=trade.is_short, leverage=trade.leverage)
 
         # otherwise use 3%
         return stoploss_from_open(-0.03, current_profit, is_short=trade.is_short, leverage=trade.leverage)
@@ -464,6 +460,9 @@ class TM3Consumer(IStrategy):
 
         if trade.enter_tag == "super_long" and current_profit >= 0.03:
             return "super_long_tp"
+
+        if trade.enter_tag == "maxima_pullback" and current_profit >= 0.015:
+            return "maxima_pullback_tp"
 
         # 4. custom exit per RR
         if current_profit >= 0.03:
