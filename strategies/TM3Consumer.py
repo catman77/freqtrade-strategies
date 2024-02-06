@@ -191,6 +191,8 @@ class TM3Consumer(IStrategy):
         "DI_cutoff"
     ]
 
+
+
     def populate_indicators(self, df: DataFrame, metadata: dict) -> DataFrame:
         # log(f"ENTER .populate_indicators() {metadata} {df.shape}")
         start_time = time.time()
@@ -226,9 +228,44 @@ class TM3Consumer(IStrategy):
         df['atr_perc'] = df['atr'] / df['close'] * 100
         self.dp.send_msg(f"{metadata['pair']} predictions: \n  minima={last_candle['minima_tm3_1h']:.2f}, \n  maxima={last_candle['maxima_tm3_1h']:.2f}, \n  trend long={last_candle['trend_long_tm3_1h']:.2f}, \n  trend short={last_candle['trend_short_tm3_1h']:.2f}, \n  trend strength={last_candle['trend_strength_tm3_1h']:.2f}")
 
+        # add regime filter
+        df['regime_line'] = self.regime_line(df)
+        df['regime_th'] = 0.1
+
+        df['atr_slow'] = talib.ATR(df['high'], df['low'], df['close'], timeperiod=24)/df['close'] * 100
+        df['atr_fast'] = talib.ATR(df['high'], df['low'], df['close'], timeperiod=2)/df['close'] * 100
+
+        df['adx'] = talib.ADX(df['high'], df['low'], df['close'], timeperiod=14)
+        df['adx_th'] = 20
+
 
         # log(f"EXIT populate_indicators {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
         return df
+
+
+    def regime_line(self, df):
+        # Calculate OHLC4 as the source series
+        src = (df['open'] + df['high'] + df['low'] + df['close']) / 4
+
+        # Initialize the calculations
+        value1 = src.diff()
+        value2 = df['high'] - df['low']
+
+        # Smoothing
+        value1_smoothed = 0.2 * value1 + 0.8 * value1.shift(1).fillna(0)
+        value2_smoothed = 0.1 * value2 + 0.8 * value2.shift(1).fillna(0)
+
+        omega = np.abs(value1_smoothed / value2_smoothed)
+        alpha = (-np.power(omega, 2) + np.sqrt(np.power(omega, 4) + 16 * np.power(omega, 2))) / 8
+
+        klmf = alpha * src + (1 - alpha) * src.shift(1).fillna(0)
+
+        absCurveSlope = np.abs(klmf - klmf.shift(1))
+        exponentialAverageAbsCurveSlope = absCurveSlope.ewm(span=200, adjust=False).mean()
+
+        normalized_slope_decline = (absCurveSlope - exponentialAverageAbsCurveSlope) / exponentialAverageAbsCurveSlope
+
+        return normalized_slope_decline
 
     def protection_di(self, df: DataFrame):
         return (df["DI_values"] < df["DI_cutoff"])
@@ -239,23 +276,23 @@ class TM3Consumer(IStrategy):
             (df['minima_tm3_1h'] >= 0.1) &
             (df['trend_long_tm3_1h'] >= 0.9) &
             (df['maxima_tm3_1h'] <= 0.1) &
-            (df['trend_short_tm3_1h'] <= 0.4)
+            (df['trend_short_tm3_1h'] <= 0.2)
         )
 
     def signal_minima_pullback(self, df: DataFrame):
         return (
-            (df['minima_tm3_1h'] >= 0.6) &
+            (df['minima_tm3_1h'] >= 0.7) &
             (df['trend_long_tm3_1h'] >= 0.1) &
-            (df['maxima_tm3_1h'] <= 0.4) &
-            (df['trend_short_tm3_1h'] <= 0.4)
+            (df['maxima_tm3_1h'] <= 0.2) &
+            (df['trend_short_tm3_1h'] <= 0.2)
         )
 
     def signal_scalp_long(self, df: DataFrame):
         return (
             (df['minima_tm3_1h'] >= 0.1) &
-            (df['trend_long_tm3_1h'] >= 0.6) &
-            (df['maxima_tm3_1h'] <= 0.4) &
-            (df['trend_short_tm3_1h'] <= 0.4)
+            (df['trend_long_tm3_1h'] >= 0.7) &
+            (df['maxima_tm3_1h'] <= 0.3) &
+            (df['trend_short_tm3_1h'] <= 0.3)
         )
 
     # def signal_maxima_pullback(self, df: DataFrame):
@@ -277,7 +314,7 @@ class TM3Consumer(IStrategy):
     def signal_scalp_short(self, df: DataFrame):
         return (
             (df['maxima_tm3_1h'] >= 0.7) &
-            (df['trend_short_tm3_1h'] >= 0.6) &
+            (df['trend_short_tm3_1h'] >= 0.7) &
             (df['minima_tm3_1h'] <= 0.3) &
             (df['trend_long_tm3_1h'] <= 0.3)
         )
