@@ -275,33 +275,33 @@ class TM3Consumer(IStrategy):
         return (
             (df['minima_tm3_1h'] >= 0.1) &
             (df['trend_long_tm3_1h'] >= 0.9) &
-            (df['maxima_tm3_1h'] <= 0.1) &
-            (df['trend_short_tm3_1h'] <= 0.2)
+            (df['maxima_tm3_1h'] <= 0.4) &
+            (df['trend_short_tm3_1h'] <= 0.1)
         )
 
     def signal_minima_pullback(self, df: DataFrame):
         return (
             (df['minima_tm3_1h'] >= 0.7) &
-            (df['trend_long_tm3_1h'] >= 0.1) &
+            (df['trend_long_tm3_1h'] >= 0.6) &
             (df['maxima_tm3_1h'] <= 0.2) &
-            (df['trend_short_tm3_1h'] <= 0.2)
-        )
-
-    def signal_scalp_long(self, df: DataFrame):
-        return (
-            (df['minima_tm3_1h'] >= 0.1) &
-            (df['trend_long_tm3_1h'] >= 0.7) &
-            (df['maxima_tm3_1h'] <= 0.3) &
             (df['trend_short_tm3_1h'] <= 0.3)
         )
 
-    # def signal_maxima_pullback(self, df: DataFrame):
+    # def signal_scalp_long(self, df: DataFrame):
     #     return (
-    #         (df['maxima_tm3_1h'] >= 0.7) &
-    #         (df['trend_short_tm3_1h'] >= 0.6) &
-    #         (df['minima_tm3_1h'] <= 0.3) &
-    #         (df['trend_long_tm3_1h'] <= 0.2)
+    #         (df['minima_tm3_1h'] >= 0.2) &
+    #         (df['trend_long_tm3_1h'] >= 0.6) &
+    #         (df['maxima_tm3_1h'] <= 0.3) &
+    #         (df['trend_short_tm3_1h'] <= 0.2)
     #     )
+
+    def signal_maxima_pullback(self, df: DataFrame):
+        return (
+            (df['maxima_tm3_1h'] >= 0.7) &
+            (df['trend_short_tm3_1h'] >= 0.9) &
+            (df['minima_tm3_1h'] <= 0.1) &
+            (df['trend_long_tm3_1h'] <= 0.4)
+        )
 
     # def signal_super_short(self, df: DataFrame):
     #     return (
@@ -311,13 +311,13 @@ class TM3Consumer(IStrategy):
     #         (df['trend_long_tm3_1h'] <= 0.1)
     #     )
 
-    def signal_scalp_short(self, df: DataFrame):
-        return (
-            (df['maxima_tm3_1h'] >= 0.7) &
-            (df['trend_short_tm3_1h'] >= 0.7) &
-            (df['minima_tm3_1h'] <= 0.3) &
-            (df['trend_long_tm3_1h'] <= 0.3)
-        )
+    # def signal_scalp_short(self, df: DataFrame):
+    #     return (
+    #         (df['maxima_tm3_1h'] >= 0.7) &
+    #         (df['trend_short_tm3_1h'] >= 0.7) &
+    #         (df['minima_tm3_1h'] <= 0.3) &
+    #         (df['trend_long_tm3_1h'] <= 0.3)
+    #     )
 
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
@@ -333,17 +333,17 @@ class TM3Consumer(IStrategy):
             self.signal_minima_pullback(df)
         ), ['enter_long', 'enter_tag']] = (1, 'minima_pullback')
 
-        # scalp long
-        df.loc[(
-            self.signal_scalp_long(df)
-        ), ['enter_long', 'enter_tag']] = (1, 'scalp_long')
+        # # scalp long
+        # df.loc[(
+        #     self.signal_scalp_long(df)
+        # ), ['enter_long', 'enter_tag']] = (1, 'scalp_long')
 
         ## SHORT signals
 
         # maxima pullback
-        # df.loc[(
-        #     self.signal_maxima_pullback(df)
-        # ), ['enter_short', 'enter_tag']] = (1, 'maxima_pullback')
+        df.loc[(
+            self.signal_maxima_pullback(df)
+        ), ['enter_short', 'enter_tag']] = (1, 'maxima_pullback')
 
         # super short
         # df.loc[(
@@ -351,27 +351,27 @@ class TM3Consumer(IStrategy):
         # ), ['enter_short', 'enter_tag']] = (1, 'super_short')
 
         # scalp short
-        df.loc[(
-            self.signal_scalp_short(df)
-        ), ['enter_short', 'enter_tag']] = (1, 'scalp_short')
+        # df.loc[(
+        #     self.signal_scalp_short(df)
+        # ), ['enter_short', 'enter_tag']] = (1, 'scalp_short')
 
 
         return df
 
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
         # LONGS
-        df.loc[(
-            self.signal_scalp_short(df)
-        ), ['exit_long', 'exit_tag']] = (1, 'exit_scalp_short')
+        # df.loc[(
+        #     self.signal_scalp_short(df)
+        # ), ['exit_long', 'exit_tag']] = (1, 'exit_scalp_short')
 
         df.loc[(
             (df['trend_short_tm3_1h'] >= 0.8) & (df['trend_long_tm3_1h'] <= 0.2)
         ), ['exit_long', 'exit_tag']] = (1, 'achtung_strong_short')
 
         # SHORTS
-        df.loc[(
-            self.signal_scalp_long(df)
-        ), ['exit_short', 'exit_tag']] = (1, 'exit_scalp_long')
+        # df.loc[(
+        #     self.signal_scalp_long(df)
+        # ), ['exit_short', 'exit_tag']] = (1, 'exit_scalp_long')
 
         df.loc[(
             (df['trend_long_tm3_1h'] >= 0.8) & (df['trend_short_tm3_1h'] <= 0.2)
@@ -459,13 +459,15 @@ class TM3Consumer(IStrategy):
             return "no_confidence_in_short"
 
         # 3. custom exit per enter_tag
+        if trade.enter_tag == "minima_pullback" and current_profit >= 0.02:
+            return "minima_pullback_tp"
+
+        if trade.enter_tag == "super_long" and current_profit >= 0.03:
+            return "super_long_tp"
+
+        # 4. custom exit per RR
         if current_profit >= 0.03:
             return "target_RR_1_1"
-        # if trade.enter_tag == "scalp_long" and current_profit >= 0.03:
-        #     return "scalp_long_tp"
-
-        # if trade.enter_tag == "scalp_short" and current_profit >= 0.03:
-        #     return "scalp_short_tp"
 
 
     ####
