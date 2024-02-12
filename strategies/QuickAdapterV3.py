@@ -159,8 +159,6 @@ class QuickAdapterV3(IStrategy):
         dataframe["bb_upperband"] = bollinger["upper"]
         dataframe["%-bb_width"] = (dataframe["bb_upperband"] -
                                    dataframe["bb_lowerband"]) / dataframe["bb_middleband"]
-        dataframe["%-ibs"] = ((dataframe['close'] - dataframe['low']) /
-                              (dataframe['high'] - dataframe['low']))
         dataframe['ema_50'] = ta.EMA(dataframe, timeperiod=50)
         dataframe['ema_12'] = ta.EMA(dataframe, timeperiod=12)
         dataframe['ema_26'] = ta.EMA(dataframe, timeperiod=26)
@@ -251,7 +249,7 @@ class QuickAdapterV3(IStrategy):
         return dataframe
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
-
+        df['enter_tag'] = ''
         enter_long_conditions = [
             df["do_predict"] == 1,
             df["DI_catch"] == 1,

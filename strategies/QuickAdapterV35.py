@@ -263,7 +263,7 @@ class QuickAdapterV35(IStrategy):
         return dataframe
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
-
+        df['enter_tag'] = ''
         enter_long_conditions = [
             df["do_predict"] == 1,
             df["DI_catch"] == 1,

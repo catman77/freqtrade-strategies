@@ -39,7 +39,7 @@ class QuickAdapterV4(IStrategy):
     position_adjustment_enable = False
 
     # Attempts to handle large drops with DCA. High stoploss is required.
-    stoploss = -0.04
+    stoploss = -0.02
 
     accuracy_scores = DataFrame()
 
@@ -133,8 +133,8 @@ class QuickAdapterV4(IStrategy):
     startup_candle_count: int = 80
     # # Trailing stop:
     trailing_stop = True
-    trailing_stop_positive = 0.01
-    trailing_stop_positive_offset = 0.025
+    trailing_stop_positive = 0.005
+    trailing_stop_positive_offset = 0.01
     trailing_only_offset_is_reached = True
 
     def feature_engineering_expand_all(self, dataframe, period, **kwargs):
@@ -167,8 +167,6 @@ class QuickAdapterV4(IStrategy):
         dataframe["bb_upperband"] = bollinger["upper"]
         dataframe["%-bb_width"] = (dataframe["bb_upperband"] -
                                    dataframe["bb_lowerband"]) / dataframe["bb_middleband"]
-        dataframe["%-ibs"] = ((dataframe['close'] - dataframe['low']) /
-                              (dataframe['high'] - dataframe['low']))
         dataframe['ema_50'] = ta.EMA(dataframe, timeperiod=50)
         dataframe['ema_12'] = ta.EMA(dataframe, timeperiod=12)
         dataframe['ema_26'] = ta.EMA(dataframe, timeperiod=26)
@@ -288,12 +286,12 @@ class QuickAdapterV4(IStrategy):
         return dataframe
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
-
+        df['enter_tag'] = ''
         enter_long_conditions = [
             df["do_predict"] == 1,
             df["DI_catch"] == 1,
             df["&s-extrema"] < df["minima_sort_threshold"],
-            df['&-s_max'] >= 0.015
+            # df['&-s_max'] >= 0.015
         ]
 
         if enter_long_conditions:
@@ -306,7 +304,7 @@ class QuickAdapterV4(IStrategy):
             df["do_predict"] == 1,
             df["DI_catch"] == 1,
             df["&s-extrema"] > df["maxima_sort_threshold"],
-            abs(df['&-s_min']) >= 0.015
+            # abs(df['&-s_min']) >= 0.015
         ]
 
         if enter_short_conditions:

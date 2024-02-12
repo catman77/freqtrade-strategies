@@ -44,7 +44,17 @@ freqtrade trade \
 	--freqaimodel CatboostFeatureSelectMultiTargetBinaryClassifierV1 \
 	--strategy TM3BinaryClassV2 \
 	--logfile user_data/logs/TM3BinaryClass.dryD.log \
-	--db-url sqlite:///user_data/db/TM3BinaryClass.dryD.sqlite
+	--db-url sqlite:///user_data/db/TM3BinaryClass.dryD2.sqlite
+
+
+freqtrade trade \
+	--config user_data/configs/TM3BinaryClass.dryD.json \
+	--freqaimodel CatboostFeatureSelectMultiTargetBinaryClassifierV1 \
+	--strategy TM3BinaryClassV3 \
+	--logfile user_data/logs/TM3BinaryClass.dryD3.log \
+	--db-url sqlite:///user_data/db/TM3BinaryClass.dryD3.sqlite
+
+
 ```
 
 ```sh
@@ -73,6 +83,17 @@ freqtrade trade \
 	--strategy TM3Consumer \
 	--logfile user_data/logs/TM3Consumer.dev.log \
 	--db-url sqlite:///user_data/db/TM3Consumer.dev.sqlite
+```
+
+TM4Regressor
+```sh
+freqtrade trade \
+	--config user_data/configs/TM4Regressor.dev.json \
+	--freqaimodel CatboostRegressorMultiTarget \
+	--strategy TM4Regressor \
+	--logfile user_data/logs/TM4Regressor.dev.log \
+	--db-url sqlite:///user_data/db/TM4Regressor.dev.sqlite
+
 ```
 
 

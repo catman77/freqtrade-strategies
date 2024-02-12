@@ -10,7 +10,7 @@ import scipy as spy
 import optuna
 import sklearn
 
-N_TRIALS = 26
+N_TRIALS = 8
 
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -96,15 +96,17 @@ class XGBoostRegressorQuickAdapterV35(BaseRegressionModel):
     def fit_live_predictions(self, dk: FreqaiDataKitchen, pair: str) -> None:
 
         warmed_up = True
+
         num_candles = self.freqai_info.get('fit_live_predictions_candles', 100)
-        if not hasattr(self, 'exchange_candles'):
-            self.exchange_candles = len(self.dd.model_return_values[pair].index)
-        candle_diff = len(self.dd.historic_predictions[pair].index) - \
-            (num_candles + self.exchange_candles)
-        if candle_diff < 0:
-            logger.warning(
-                f'Fit live predictions not warmed up yet. Still {abs(candle_diff)} candles to go')
-            warmed_up = False
+        if self.live:
+            if not hasattr(self, 'exchange_candles'):
+                self.exchange_candles = len(self.dd.model_return_values[pair].index)
+            candle_diff = len(self.dd.historic_predictions[pair].index) - \
+                (num_candles + self.exchange_candles)
+            if candle_diff < 0:
+                logger.warning(
+                    f'Fit live predictions not warmed up yet. Still {abs(candle_diff)} candles to go')
+                warmed_up = False
 
         pred_df_full = self.dd.historic_predictions[pair].tail(num_candles).reset_index(drop=True)
         pred_df_sorted = pd.DataFrame()
@@ -150,10 +152,11 @@ class XGBoostRegressorQuickAdapterV35(BaseRegressionModel):
         dk.data['extra_returns_per_train']['DI_cutoff'] = cutoff
 
 
+
 def objective(trial, X, y, weights, X_test, y_test, params):
     """Define the objective function"""
 
-    window = trial.suggest_int('train_period_candles', 1152, 17280, step=26)
+    window = trial.suggest_int('train_period_candles', 1152, 17280, step=2016)
 
     # Fit the model
     model = XGBRegressor(**params)

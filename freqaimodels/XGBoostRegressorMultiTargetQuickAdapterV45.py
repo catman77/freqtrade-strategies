@@ -19,12 +19,17 @@ import optuna
 from freqtrade.freqai.tensorboard import TBCallback
 import sklearn
 from optuna.samplers import TPESampler
+from scipy.signal import argrelextrema
+from freqtrade.freqai.utils import get_tb_logger, plot_feature_importance
+from freqtrade.configuration import TimeRange
+from freqtrade.strategy.interface import IStrategy
+from freqtrade.exchange import timeframe_to_seconds
 
 logger = logging.getLogger(__name__)
 
 
 # Optuna
-N_TRIALS = 8
+N_TRIALS = 25
 
 """
 The following freqaimodel is released to sponsors of the non-profit FreqAI open-source project.
@@ -43,7 +48,7 @@ https://github.com/sponsors/robcaulk
 """
 
 
-class XGBoostRegressorMultiTargetQuickAdapterV4(BaseRegressionModel):
+class XGBoostRegressorMultiTargetQuickAdapterV45(BaseRegressionModel):
     """
     User created prediction model. The class needs to override three necessary
     functions, predict(), train(), fit(). The class inherits ModelHandler which
@@ -65,44 +70,18 @@ class XGBoostRegressorMultiTargetQuickAdapterV4(BaseRegressionModel):
             eval_set = None
             eval_weights = None
         else:
-            eval_set = [(data_dictionary["test_features"], data_dictionary["test_labels"])]
+            eval_set = [(data_dictionary["test_features"],
+                         data_dictionary["test_labels"])]
             eval_weights = [data_dictionary['test_weights']]
 
         sample_weight = data_dictionary["train_weights"]
         start = time.time()
         xgb_model = self.get_init_model(dk.pair)
-        hp = {}
-        if self.freqai_info.get("optuna_hyperopt", False):
-            study = optuna.create_study(direction='minimize')
-            study.optimize(
-                lambda trial: objective(
-                    trial,
-                    X,
-                    y,
-                    sample_weight,
-                    data_dictionary["test_features"],
-                    data_dictionary["test_labels"],
-                    self.model_training_parameters,
-                ),
-                n_trials=N_TRIALS,
-                n_jobs=1,
-            )
 
-            # display params
-            hp = study.best_params
-            # trial = study.best_trial
-            for key, value in hp.items():
-                logger.warning(f"{key:>20s} : {value}")
-            logger.info(f"{'best objective value':>20s} : {study.best_value}")
-
-        window = hp.get("train_period_candles", 7000)
-        logger.info(f"Using training window of {window} candles")
-        X = X.tail(window)
-        y = y.tail(window)
-        sample_weight = sample_weight[-window:]
         model = XGBRegressor(**self.model_training_parameters)
 
-        model.set_params(callbacks=[TBCallback(dk.data_path)], activate=self.activate_tensorboard)
+        model.set_params(callbacks=[TBCallback(
+            dk.data_path)], activate=self.activate_tensorboard)
         model.fit(X=X, y=y, sample_weight=sample_weight, eval_set=eval_set,
                   sample_weight_eval_set=eval_weights, xgb_model=xgb_model)
         # set the callbacks to empty so that we can serialize to disk later
@@ -110,7 +89,7 @@ class XGBoostRegressorMultiTargetQuickAdapterV4(BaseRegressionModel):
         time_spent = (time.time() - start)
         self.dd.update_metric_tracker('fit_time', time_spent, dk.pair)
 
-        return model
+        return model, eval_set
 
     def fit_live_predictions(self, dk: FreqaiDataKitchen, pair: str) -> None:
 
@@ -118,7 +97,8 @@ class XGBoostRegressorMultiTargetQuickAdapterV4(BaseRegressionModel):
         num_candles = self.freqai_info.get('fit_live_predictions_candles', 100)
         if self.live:
             if not hasattr(self, 'exchange_candles'):
-                self.exchange_candles = len(self.dd.model_return_values[pair].index)
+                self.exchange_candles = len(
+                    self.dd.model_return_values[pair].index)
             candle_diff = len(self.dd.historic_predictions[pair].index) - \
                 (num_candles + self.exchange_candles)
             if candle_diff < 0:
@@ -126,7 +106,8 @@ class XGBoostRegressorMultiTargetQuickAdapterV4(BaseRegressionModel):
                     f'Fit live predictions not warmed up yet. Still {abs(candle_diff)} candles to go')
                 warmed_up = False
 
-        pred_df_full = self.dd.historic_predictions[pair].tail(num_candles).reset_index(drop=True)
+        pred_df_full = self.dd.historic_predictions[pair].tail(
+            num_candles).reset_index(drop=True)
         pred_df_sorted = pd.DataFrame()
         for label in pred_df_full.keys():
             if pred_df_full[label].dtype == object:
@@ -137,7 +118,9 @@ class XGBoostRegressorMultiTargetQuickAdapterV4(BaseRegressionModel):
         for col in pred_df_sorted:
             pred_df_sorted[col] = pred_df_sorted[col].sort_values(
                 ascending=False, ignore_index=True)
-        frequency = num_candles / (self.freqai_info['feature_parameters']['label_period_candles'] * 2)
+        frequency = num_candles / \
+            (self.freqai_info['feature_parameters']
+             ['label_period_candles'] * 2)
         max_pred = pred_df_sorted.iloc[:int(frequency)].mean()
         min_pred = pred_df_sorted.iloc[-int(frequency):].mean()
 
@@ -170,7 +153,7 @@ class XGBoostRegressorMultiTargetQuickAdapterV4(BaseRegressionModel):
         dk.data['extra_returns_per_train']['DI_cutoff'] = cutoff
 
     def train(
-        self, unfiltered_df: DataFrame, pair: str, dk: FreqaiDataKitchen, **kwargs
+        self, unfiltered_df: DataFrame, pair: str, dk: FreqaiDataKitchen, window: int, **kwargs
     ) -> Any:
         """
         Filter the training data and train a model to it. Train makes heavy use of the datakitchen
@@ -181,7 +164,8 @@ class XGBoostRegressorMultiTargetQuickAdapterV4(BaseRegressionModel):
         :model: Trained model which can be used to inference (self.predict)
         """
 
-        logger.info(f"-------------------- Starting training {pair} --------------------")
+        logger.info(
+            f"-------------------- Starting training {pair} --------------------")
 
         start_time = time.time()
 
@@ -199,6 +183,12 @@ class XGBoostRegressorMultiTargetQuickAdapterV4(BaseRegressionModel):
                     f"{end_date} --------------------")
         # split data into train/test data.
         dd = self.make_train_test_datasets(features_filtered, labels_filtered, dk)
+
+        # chop to the current window
+        dd["train_features"] = dd["train_features"][-window:]
+        dd["train_labels"] = dd["train_labels"][-window:]
+        dd["train_weights"] = dd["train_weights"][-window:]
+
         if not self.freqai_info.get("fit_live_predictions_candles", 0) or not self.live:
             dk.fit_labels()
 
@@ -221,30 +211,20 @@ class XGBoostRegressorMultiTargetQuickAdapterV4(BaseRegressionModel):
                                                                  dd["test_weights"])
             dd["test_labels"], _, _ = dk.label_pipeline.transform(dd["test_labels"])
 
-        # normalize all data based on train_dataset only
-        if self.freqai_info.get("auto_training_window", False):
-            target_horizon = self.freqai_info['feature_parameters']['label_period_candles']
-            df = dd["train_features"]
-            z = self.find_training_horizon(df, target_horizon)
-            logger.info(
-                f"Reducing training data from length {len(df)} to new horizon of {z} candles.")
-            dd["train_features"] = df.tail(z)
-            dd["train_labels"] = dd["train_labels"].tail(z)
-            dd["train_weights"] = dd["train_weights"][-z:]
-
         logger.info(
             f"Training model on {len(dk.data_dictionary['train_features'].columns)} features"
         )
-        logger.info(f"Training model on {len(dd['train_features'])} data points")
+        logger.info(
+            f"Training model on {len(dd['train_features'])} data points")
 
-        model = self.fit(dd, dk)
+        model, eval_set = self.fit(dd, dk)
 
         end_time = time.time()
 
         logger.info(f"-------------------- Done training {pair} "
                     f"({end_time - start_time:.2f} secs) --------------------")
 
-        return model
+        return model, eval_set
 
     def balance_training_weights(self, labels: DataFrame, weights: npt.ArrayLike, dk: FreqaiDataKitchen) -> npt.ArrayLike:
         """
@@ -272,7 +252,8 @@ class XGBoostRegressorMultiTargetQuickAdapterV4(BaseRegressionModel):
         feat_dict = dk.freqai_config["feature_parameters"]
 
         if 'shuffle' not in dk.freqai_config['data_split_parameters']:
-            dk.freqai_config["data_split_parameters"].update({'shuffle': False})
+            dk.freqai_config["data_split_parameters"].update(
+                {'shuffle': False})
 
         weights: npt.ArrayLike
         if feat_dict.get("weight_factor", 0) > 0:
@@ -310,11 +291,14 @@ class XGBoostRegressorMultiTargetQuickAdapterV4(BaseRegressionModel):
             rint2 = random.randint(0, 100)
             train_features = train_features.sample(
                 frac=1, random_state=rint1).reset_index(drop=True)
-            train_labels = train_labels.sample(frac=1, random_state=rint1).reset_index(drop=True)
+            train_labels = train_labels.sample(
+                frac=1, random_state=rint1).reset_index(drop=True)
             train_weights = pd.DataFrame(train_weights).sample(
                 frac=1, random_state=rint1).reset_index(drop=True).to_numpy()[:, 0]
-            test_features = test_features.sample(frac=1, random_state=rint2).reset_index(drop=True)
-            test_labels = test_labels.sample(frac=1, random_state=rint2).reset_index(drop=True)
+            test_features = test_features.sample(
+                frac=1, random_state=rint2).reset_index(drop=True)
+            test_labels = test_labels.sample(
+                frac=1, random_state=rint2).reset_index(drop=True)
             test_weights = pd.DataFrame(test_weights).sample(
                 frac=1, random_state=rint2).reset_index(drop=True).to_numpy()[:, 0]
 
@@ -323,67 +307,132 @@ class XGBoostRegressorMultiTargetQuickAdapterV4(BaseRegressionModel):
             return dk.build_data_dictionary(
                 test_features, train_features, test_labels,
                 train_labels, test_weights, train_weights
-                )
+            )
         else:
             return dk.build_data_dictionary(
                 train_features, test_features, train_labels,
                 test_labels, train_weights, test_weights
             )
 
-    def find_training_horizon(self, df: pd.DataFrame, target_horizon, threshold=0.5e-3):
+    def extract_data_and_train_model(
+        self,
+        new_trained_timerange: TimeRange,
+        pair: str,
+        strategy: IStrategy,
+        dk: FreqaiDataKitchen,
+        data_load_timerange: TimeRange,
+    ):
         """
-        Given a set of raw data, determine the necessariy training horizon
-        associated to the target horizon
+        Retrieve data and train model.
+        :param new_trained_timerange: TimeRange = the timerange to train the model on
+        :param metadata: dict = strategy provided metadata
+        :param strategy: IStrategy = user defined strategy object
+        :param dk: FreqaiDataKitchen = non-persistent data container for current coin/loop
+        :param data_load_timerange: TimeRange = the amount of data to be loaded
+                                    for populating indicators
+                                    (larger than new_trained_timerange so that
+                                    new_trained_timerange does not contain any NaNs)
         """
-        # focus on the base parameter space before shifts
-        df_comp = df.loc[:, ~df.columns.str.contains("shift")].copy()
-        step_size = 20
-        change_window = 5
-        std_ratio = np.array([])
-        max_window = df_comp.shape[0] - target_horizon
-        horizon_features = df_comp.iloc[-target_horizon:]
-        jobs = self.freqai_info["data_kitchen_thread_count"]
 
-        logger.info("Finding training horizon, might take some time...")
-        for t in np.arange(0, max_window, step_size):
-            logger.debug(f"On step {t}/{max_window}")
-            current_window = df_comp.iloc[-target_horizon - t:]
-            current_window_distances = pairwise_distances(
-                current_window, metric="euclidean", n_jobs=jobs)
+        corr_dataframes, base_dataframes = self.dd.get_base_and_corr_dataframes(
+            data_load_timerange, pair, dk
+        )
 
-            np.fill_diagonal(current_window_distances, np.NaN)
-            current_window_distances = current_window_distances.reshape(-1, 1)
-            std_train_dist = current_window_distances[~np.isnan(current_window_distances)].std()
-            distances_horizon_current_window = pairwise_distances(
-                current_window, horizon_features, metric="euclidean", n_jobs=jobs)
+        unfiltered_dataframe = dk.use_strategy_to_populate_indicators(
+            strategy, corr_dataframes, base_dataframes, pair
+        )
 
-            distances_horizon_current_window = distances_horizon_current_window.reshape(-1, 1)
-            di_std = distances_horizon_current_window.std() / std_train_dist
-            std_ratio = np.append(std_ratio, di_std)
-            if len(std_ratio) > change_window:
-                change = np.mean(np.abs(np.diff(std_ratio[-change_window:])))
-                logger.debug(f"Change in std ratio: {change}")
-                if change < threshold:
-                    logger.info(f"Found training horizon of {t}.")
-                    return t
+        trained_timestamp = new_trained_timerange.stopts
 
-        logger.warning("Could not find training horizon. Using full data set.")
-        return df_comp.shape[0]
+        self.tb_logger = get_tb_logger(self.dd.model_type, dk.data_path,
+                                       self.activate_tensorboard)
 
+        # add optuna error as None to dk so we can track it in the objective
+        dk.optuna_error = None
+        hp = {}
+        study = optuna.create_study(direction='minimize')
+        study.optimize(
+            lambda trial: self.objective(trial, unfiltered_dataframe, pair, dk, new_trained_timerange),
+            n_trials=N_TRIALS,
+            n_jobs=1,
+        )
 
-def objective(trial, X, y, weights, X_test, y_test, params):
-    """Define the objective function"""
+        # display params
+        hp = study.best_params
+        # trial = study.best_trial
+        for key, value in hp.items():
+            logger.warning(f"{key:>20s} : {value}")
+        logger.info(f"{'best objective value':>20s} : {study.best_value}")
 
-    window = trial.suggest_int('train_period_candles', 1152, 17280, step=2016)
+        model = dk.best_model
+        self.tb_logger.close()
 
-    # Fit the model
-    model = XGBRegressor(**params)
-    X = X.tail(window)
-    y = y.tail(window)
-    weights = weights[-window:]
-    model.fit(X, y, sample_weight=weights, eval_set=[(X_test, y_test)])
-    y_pred = model.predict(X_test)
+        # incase we want to use this in the strat (but we need to be careful
+        # training may update this while a trade may be on an older kernel)
+        self.dd.pair_dict[pair]["kernel"] = hp["kernel"]
+        self.dd.pair_dict[pair]["trained_timestamp"] = trained_timestamp
+        dk.set_new_model_names(pair, trained_timestamp)
+        self.dd.save_data(model, pair, dk)
 
-    error = sklearn.metrics.mean_squared_error(y_test, y_pred)
+        if self.plot_features:
+            plot_feature_importance(model, pair, dk, self.plot_features)
 
-    return error
+        self.dd.purge_old_models()
+
+    def set_freqai_targets(self, dataframe, kernel, **kwargs):
+        dataframe["&s-extrema"] = 0
+        min_peaks = argrelextrema(
+            dataframe["low"].values, np.less,
+            order=kernel
+        )
+        max_peaks = argrelextrema(
+            dataframe["high"].values, np.greater,
+            order=kernel
+        )
+        for mp in min_peaks[0]:
+            dataframe.at[mp, "&s-extrema"] = -1
+        for mp in max_peaks[0]:
+            dataframe.at[mp, "&s-extrema"] = 1
+        dataframe["minima-exit"] = np.where(
+            dataframe["&s-extrema"] == -1, 1, 0)
+        dataframe["maxima-exit"] = np.where(dataframe["&s-extrema"] == 1, 1, 0)
+        dataframe['&s-extrema'] = dataframe['&s-extrema'].rolling(
+            window=5, win_type='gaussian', center=True).mean(std=0.5)
+
+        # predict the expected range
+        dataframe['&-s_max'] = dataframe["close"].shift(-kernel).rolling(
+            kernel).max()/dataframe["close"] - 1
+        dataframe['&-s_min'] = dataframe["close"].shift(-kernel).rolling(
+            kernel).min()/dataframe["close"] - 1
+
+        return dataframe
+
+    def objective(self, trial, unfiltered_dataframe, pair, dk, timerange):
+        """Define the objective function"""
+
+        window = trial.suggest_int('train_period_candles', 1152, 17280, step=2016)
+        kernel = trial.suggest_int('kernel', 10, 50, step=10)
+
+        opt_dataframe = self.set_freqai_targets(unfiltered_dataframe, kernel)
+
+        timerange.stopts -= kernel * timeframe_to_seconds(self.config["timeframe"])
+        timerange.startts += kernel * timeframe_to_seconds(self.config["timeframe"])
+
+        unfiltered_dataframe = dk.slice_dataframe(timerange, unfiltered_dataframe)
+
+        # find the features indicated by strategy and store in datakitchen
+        dk.find_features(unfiltered_dataframe)
+        dk.find_labels(unfiltered_dataframe)
+
+        model, eval_set = self.train(opt_dataframe, pair, dk, window)
+        X_test = eval_set[0][0]
+        y_test = eval_set[0][1]
+
+        y_pred = model.predict(X_test)
+
+        error = sklearn.metrics.mean_squared_error(y_test, y_pred)
+        if dk.optuna_error is None or error < dk.optuna_error:
+            dk.optuna_error = error
+            dk.best_model = model
+
+        return error

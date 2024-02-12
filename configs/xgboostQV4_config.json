@@ -1,0 +1,239 @@
+{
+    "trading_mode": "futures",
+    "new_pairs_days": 30,
+    "margin_mode": "isolated",
+    "max_open_trades": 8,
+    "stake_currency": "USDT",
+    "stake_amount": 1000,
+    "tradable_balance_ratio": 1,
+    "fiat_display_currency": "USD",
+    "dry_run": true,
+    "timeframe": "5m",
+    "dataformat_ohlcv": "json",
+    "dry_run_wallet": 12000,
+    "cancel_open_orders_on_exit": true,
+    "order_types": {
+        "entry": "market",
+        "exit": "market",
+        "emergency_exit": "market",
+        "stoploss": "market",
+        "force_exit": "market",
+        "stoploss_on_exchange": false
+    },
+    "unfilledtimeout": {
+        "entry": 1,
+        "exit": 1
+    },
+    "exchange": {
+        "name": "bybit",
+        "key": "",
+        "secret": "",
+        "ccxt_config": {
+            "enableRateLimit": true,
+            "rateLimit": 50
+        },
+        "ccxt_async_config": {
+            "enableRateLimit": true,
+            "rateLimit": 50
+        },
+        "pair_whitelist": [
+            "1INCH/USDT:USDT",
+            "AAVE/USDT:USDT",
+            "ADA/USDT:USDT",
+            "BTC/USDT:USDT",
+            "ETH/USDT:USDT",
+            "DOT/USDT:USDT",
+            "LINK/USDT:USDT",
+            "DOGE/USDT:USDT",
+            "SOL/USDT:USDT",
+            "MATIC/USDT:USDT",
+            "EGLD/USDT:USDT",
+            "XLM/USDT:USDT",
+            "XRP/USDT:USDT",
+            "XMR/USDT:USDT",
+            "ZEC/USDT:USDT",
+            "AVAX/USDT:USDT",
+            "SNX/USDT:USDT",
+            "ATOM/USDT:USDT",
+            "LTC/USDT:USDT"
+        ],
+        "pair_blacklist": []
+    },
+    "entry_pricing": {
+        "price_side": "other",
+        "use_order_book": true,
+        "order_book_top": 1,
+        "price_last_balance": 0.0,
+        "check_depth_of_market": {
+            "enabled": false,
+            "bids_to_ask_delta": 1
+        }
+    },
+    "exit_pricing": {
+        "price_side": "other",
+        "use_order_book": true,
+        "order_book_top": 1
+    },
+    "pairlists": [
+        {
+            "method": "StaticPairList"
+        },
+        {
+            "method": "ShuffleFilter",
+            "seed": 42
+        }
+    ],
+    "bot_name": "adaptive_test",
+    "force_entry_enable": true,
+    "initial_state": "running",
+    "internals": {
+        "process_throttle_secs": 5
+    },
+    "freqai": {
+        "enabled": true,
+        "conv_width": 1,
+        "purge_old_models": 5,
+        "expiration_hours": 24,
+        "train_period_days": 60,
+        "backtest_period_days": 2,
+        "write_metrics_to_disk": true,
+        "identifier": "quickadapterv43",
+        "fit_live_predictions_candles": 300,
+        "data_kitchen_thread_count": 10,
+        "track_performance": false,
+        "weibull_outlier_threshold": 0.999,
+        "auto_training_window": false,
+        "optuna_hyperopt": true,
+        "extra_returns_per_train": {
+            "DI_value_param1": 0,
+            "DI_value_param2": 0,
+            "DI_value_param3": 0,
+            "DI_cutoff": 2,
+            "&s-minima_sort_threshold": -2,
+            "&s-maxima_sort_threshold": 2
+        },
+        "feature_parameters": {
+            "include_corr_pairlist": [
+                "BTC/USDT:USDT",
+                "ETH/USDT:USDT"
+            ],
+            "include_timeframes": [
+                "5m",
+                "15m",
+                "1h",
+                "4h"
+            ],
+            "label_period_candles": 50,
+            "include_shifted_candles": 15,
+            "DI_threshold": 20,
+            "weight_factor": 0.3,
+            "indicator_periods_candles": [
+                8,
+                16,
+                32
+            ],
+            "noise_standard_deviation": 0.01,
+            "plot_feature_importances": 50,
+            "buffer_train_data_candles": 50,
+            "balance_weights": false,
+            "include_santiment_data": false
+        },
+        "data_split_parameters": {
+            "test_size": 0.05,
+            "random_state": 1,
+            "shuffle": false
+        },
+        "model_training_parameters": {
+            "n_estimators": 500,
+            "device": "cuda",
+            "tree_method": "hist",
+            "n_jobs": 10,
+            "verbosity": 1,
+            "alpha": 0.5,
+            "min_child_weight": 5,
+            "learning_rate": 0.1,
+            "max_depth": 6,
+            "early_stopping_rounds": 20
+        },
+        "santiment_config": {
+            "metrics": [
+                "sentiment_positive_total",
+                "sentiment_positive_telegram",
+                "sentiment_positive_reddit",
+                "sentiment_positive_bitcointalk",
+                "sentiment_negative_total",
+                "sentiment_negative_telegram",
+                "sentiment_negative_reddit",
+                "sentiment_negative_bitcointalk",
+                "sentiment_balance_total",
+                "sentiment_balance_telegram",
+                "sentiment_balance_reddit",
+                "sentiment_balance_bitcointalk",
+                "sentiment_volume_consumed_total",
+                "sentiment_volume_consumed_telegram",
+                "sentiment_volume_consumed_reddit",
+                "sentiment_volume_consumed_bitcointalk",
+                "social_dominance_telegram",
+                "social_dominance_reddit",
+                "social_dominance_youtube_videos",
+                "social_dominance_total",
+                "social_volume_telegram",
+                "social_volume_reddit",
+                "social_volume_bitcointalk",
+                "social_volume_youtube_videos",
+                "social_volume_total",
+                "social_volume_ai_total",
+                "age_destroyed",
+                "age_consumed",
+                "transaction_volume",
+                "active_withdrawals_5m",
+                "usdt_binance_open_interest",
+                "bitfinex_perpetual_funding_rate",
+                "exchange_inflow",
+                "exchange_outflow",
+                "exchange_balance",
+                "nvt_5min",
+                "median_transfer_5m",
+                "active_deposits_5m",
+                "average_fees_usd_5m",
+                "withdrawal_transactions_5m",
+                "unique_social_volume_total_5m",
+                "mvrv_usd_intraday",
+                "mvrv_usd_intraday_30d",
+                "network_profit_loss",
+                "network_profit_loss_change_1d",
+                "dai_created",
+                "active_addresses_1h",
+                "mcd_supply",
+                "velocity",
+                "whale_defi_balance",
+                "uniswap_claims_amount",
+                "uniswap_lp_claims_amount",
+                "bitmex_perpetual_price",
+                "spent_coins_cost",
+                "whale_transaction_count_100k_usd_to_inf",
+                "whale_transaction_count_1m_usd_to_inf",
+                "compound_action_deposits",
+                "compound_total_liquidations_usd",
+                "price_usd",
+                "supply_on_exchanges",
+                "fees",
+                "spent_coins_cost",
+                "avg_gas_used",
+                "active_deposits",
+                "withdrawal_transactions",
+                "median_fees_usd_5m",
+                "eth2_staking_pools_usd",
+                "eth2_staking_pools_validators_count_over_time_delta"
+            ],
+            "slugs": [
+                "bitcoin",
+                "ethereum"
+            ],
+            "moving_average_window": 5,
+            "santiment_api_key": "", // insert your santiment API key here 
+            "maxInt": "8h"
+        }
+    }
+}
+
