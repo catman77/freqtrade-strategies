@@ -1,11 +1,13 @@
 # add common folders to path
+import re
 import sys
 import os
 
 import talib
 
 from freqtrade.exchange.exchange_utils import timeframe_to_prev_date
-from freqtrade.strategy.strategy_helper import stoploss_from_absolute
+from freqtrade.strategy.strategy_helper import stoploss_from_absolute, stoploss_from_open
+from freqtrade.strategy.strategy_helper import merge_informative_pair
 
 ROOT_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(ROOT_DIR)
@@ -138,78 +140,14 @@ class TM3BinaryClass(IStrategy):
     """
 
     def heartbeat(self):
-        sdnotify.SystemdNotifier().notify("WATCHDOG=1")
+        sdnotify.SystemdNotifier().notify("WATCHDOG=1\nSTATUS=State: RUNNING.")
 
     def log(self, msg, *args, **kwargs):
         self.heartbeat()
         logger.info(msg, *args, **kwargs)
 
-    class HyperOpt:
-        def generate_estimator(dimensions: List['Dimension'], **kwargs):
-            return "ET"
-            # return "GP"
-            # return "RF"
-
-        # Define a custom stoploss space.
-        def stoploss_space():
-            return [SKDecimal(-0.04, -0.01, decimals=3, name='stoploss')]
-
-        # Define custom ROI space
-        def roi_space() -> List[Dimension]:
-            return [
-                Integer(1, 180, name='roi_t1'),
-                Integer(1, 180, name='roi_t2'),
-                Integer(1, 180, name='roi_t3'),
-                SKDecimal(0, 0.2, decimals=3, name='roi_p1'),
-                SKDecimal(0, 0.06, decimals=3, name='roi_p2'),
-                SKDecimal(0, 0.15, decimals=3, name='roi_p3'),
-            ]
-
-        def generate_roi_table(params: Dict) -> Dict[int, float]:
-
-            roi_table = {}
-            roi_table[0] = params['roi_p1'] + params['roi_p2'] + params['roi_p3']
-            roi_table[params['roi_t3']] = params['roi_p1'] + params['roi_p2']
-            roi_table[params['roi_t3'] + params['roi_t2']] = params['roi_p1']
-            roi_table[params['roi_t3'] + params['roi_t2'] + params['roi_t1']] = 0
-
-            return roi_table
-
-    plot_config = {
-        "main_plot": {},
-        "subplots": {
-            "trend": {
-                "do_predict_tm3_1h": {
-                    "color": "#102c42",
-                    "type": "bar"
-                },
-                "trend_long_tm3_1h": {
-                    "color": "#2db936",
-                    "type": "line"
-                },
-                "trend_short_tm3_1h": {
-                    "color": "#f40b5d",
-                    "type": "line"
-                }
-            },
-            "extrema": {
-                "do_predict_tm3_1h": {
-                    "color": "#102c42",
-                    "type": "bar"
-                },
-                "maxima_tm3_1h": {
-                    "color": "#f40b5d",
-                    "type": "line"
-                },
-                "minima_tm3_1h": {
-                    "color": "#2db936"
-                }
-            }
-        }
-    }
-
     minimal_roi = {
-        "0": 0.13
+        "0": 0.06 # Target: RR 2:1
     }
 
     TARGET_VAR = "ohlc4_log"
@@ -228,7 +166,7 @@ class TM3BinaryClass(IStrategy):
     # user should define the maximum startup candle count (the largest number of candles
     # passed to any single indicator)
     # internally freqtrade multiply it by 2, so we put here 1/2 of the max startup candle count
-    startup_candle_count: int = 100
+    startup_candle_count: int = 200
 
     LONG_ENTRY_SIGNAL_TRESHOLD = DecimalParameter(0.7, 0.95, decimals=2, default=0.8, space="buy", optimize=True)
     SHORT_ENTRY_SIGNAL_TRESHOLD = DecimalParameter(0.7, 0.95, decimals=2, default=0.8, space="buy", optimize=True)
@@ -263,55 +201,146 @@ class TM3BinaryClass(IStrategy):
     def TARGET_EXTREMA_WINDOW(self):
         return self.config["sagemaster"].get('TARGET_EXTREMA_WINDOW', 5)
 
+    @property
+    def data_kitchen_thread_count(self):
+        return self.config["freqai"].get("data_kitchen_thread_count", 4)
+
     def bot_start(self, **kwargs) -> None:
         print("bot_start")
 
         if (self.PREDICT_STORAGE_ENABLED):
             self.ps = PredictionStorage(connection_string=self.config["sagemaster"].get("PREDICT_STORAGE_CONN_STRING"))
 
-    def feature_engineering_trend(self, df: DataFrame, metadata, **kwargs):
+    def feature_engineering_trend(self, df: pd.DataFrame, metadata, **kwargs):
         self.log(f"ENTER .feature_engineering_trend() {metadata} {df.shape}")
         start_time = time.time()
 
-        # Trends for indicators
-        all_cols = filter(lambda col:
-            (col != 'trend')
-            and col.find('pmX') == -1
-            and col.find('date') == -1
-            and col.find('_signal') == -1
-            and col.find('_trend') == -1
-            and col.find('_rising') == -1
-            and col.find('_std') == -1
-            and col.find('_change_') == -1
-            and col.find('_lower_band') == -1
-            and col.find('_upper_band') == -1
-            and col.find('_upper_envelope') == -1
-            and col.find('_lower_envelope') == -1
-            and col.find('%-dist_to_') == -1
-            and col.find('%-s1') == -1
-            and col.find('%-s2') == -1
-            and col.find('%-s3') == -1
-            and col.find('%-r1') == -1
-            and col.find('%-r2') == -1
-            and col.find('%-r3') == -1
-            and col.find('_divergence') == -1, df.columns)
+        # Optimized Column Filtering using Regular Expression
+        regex_pattern = r'^(?!.*(pmX|date|_signal|_trend|_rising|_std|_change_|_lower_band|_upper_band|_upper_envelope|_lower_envelope|%-dist_to_|%-s[123]|%-r[123]|_divergence)).*$'
+        all_cols = [col for col in df.columns if re.match(regex_pattern, col)]
 
-        results = []
-        result_cols = []
-        # launch all processes
-        # Use Parallel and delayed for multiprocessing
-        result_cols = Parallel(n_jobs=self.config["freqai"].get("data_kitchen_thread_count", 4))(
-            delayed(helpers.create_col_trend)(col, self.PREDICT_TARGET, df, "polyfit") for col in all_cols
+        # # Parallel Processing
+        result_cols = Parallel(n_jobs=self.data_kitchen_thread_count)(
+            delayed(helpers.create_col_trend)(col, self.PREDICT_TARGET, df[[col]]) for col in all_cols
         )
+        # # Using DataFrame apply
+        # result_cols = []
+        # for col in all_cols:
+        #     # try:
+        #     trend_col = helpers.create_col_trend(col, self.PREDICT_TARGET, df)
+        #     result_cols.append(trend_col)
+        #     # except Exception as e:
+        #     # self.log(f"Error processing column {col}: {e}")
+        #         # continue
 
-        # Combine results
+        # Memory Efficient Concatenation
         result_df = pd.concat(result_cols, axis=1)
-        result_df.columns = ["%-"+x for x in result_df.columns]
-
         df = pd.concat([df, result_df], axis=1)
 
         self.log(f"EXIT .feature_engineering_trend() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
 
+        return df
+
+    def feature_engineering_candle_patterns(self, df, metadata, **kwargs):
+        self.log(f"ENTER .feature_engineering_candle_patterns(): {metadata} {df.shape}")
+        start_time = time.time()
+        pref = f"%"
+        df = df.copy()
+
+        # Pattern Recognition - Bullish candlestick patterns
+        # ------------------------------------
+        # Hammer: values [0, 100]
+        df[f'{pref}-CDLHAMMER'] = ta.CDLHAMMER(df)
+        # Inverted Hammer: values [0, 100]
+        df[f'{pref}-CDLINVERTEDHAMMER'] = ta.CDLINVERTEDHAMMER(df)
+        # Dragonfly Doji: values [0, 100]
+        df[f'{pref}-CDLDRAGONFLYDOJI'] = ta.CDLDRAGONFLYDOJI(df)
+        # Piercing Line: values [0, 100]
+        df[f'{pref}-CDLPIERCING'] = ta.CDLPIERCING(df) # values [0, 100]
+        # Morningstar: values [0, 100]
+        df[f'{pref}-CDLMORNINGSTAR'] = ta.CDLMORNINGSTAR(df) # values [0, 100]
+        # Three White Soldiers: values [0, 100]
+        df[f'{pref}-CDL3WHITESOLDIERS'] = ta.CDL3WHITESOLDIERS(df) # values [0, 100]
+
+        # Pattern Recognition - Bearish candlestick patterns
+        # ------------------------------------
+        # # Hanging Man: values [0, 100]
+        df[f'{pref}-CDLHANGINGMAN'] = ta.CDLHANGINGMAN(df)
+        # Shooting Star: values [0, 100]
+        df[f'{pref}-CDLSHOOTINGSTAR'] = ta.CDLSHOOTINGSTAR(df)
+        # Gravestone Doji: values [0, 100]
+        df[f'{pref}-CDLGRAVESTONEDOJI'] = ta.CDLGRAVESTONEDOJI(df)
+        # Dark Cloud Cover: values [0, 100]
+        df[f'{pref}-CDLDARKCLOUDCOVER'] = ta.CDLDARKCLOUDCOVER(df)
+        # Evening Doji Star: values [0, 100]
+        df[f'{pref}-CDLEVENINGDOJISTAR'] = ta.CDLEVENINGDOJISTAR(df)
+        # Evening Star: values [0, 100]
+        df[f'{pref}-CDLEVENINGSTAR'] = ta.CDLEVENINGSTAR(df)
+
+        # Pattern Recognition - Bullish/Bearish candlestick patterns
+        # ------------------------------------
+        # Three Line Strike: values [0, -100, 100]
+        df[f'{pref}-CDL3LINESTRIKE'] = ta.CDL3LINESTRIKE(df)
+        # Spinning Top: values [0, -100, 100]
+        df[f'{pref}-CDLSPINNINGTOP'] = ta.CDLSPINNINGTOP(df) # values [0, -100, 100]
+        # Engulfing: values [0, -100, 100]
+        df[f'{pref}-CDLENGULFING'] = ta.CDLENGULFING(df) # values [0, -100, 100]
+        # Harami: values [0, -100, 100]
+        df[f'{pref}-CDLHARAMI'] = ta.CDLHARAMI(df) # values [0, -100, 100]
+        # Three Outside Up/Down: values [0, -100, 100]
+        df[f'{pref}-CDL3OUTSIDE'] = ta.CDL3OUTSIDE(df) # values [0, -100, 100]
+        # Three Inside Up/Down: values [0, -100, 100]
+        df[f'{pref}-CDL3INSIDE'] = ta.CDL3INSIDE(df) # values [0, -100, 100]
+
+        # Pattern Recognition - The Rest
+        # ------------------------------------
+        # df[f'{pref}-CDL2CROWS'] = ta.CDL2CROWS(df)
+        # df[f'{pref}-CDL3BLACKCROWS'] = ta.CDL3BLACKCROWS(df)
+        # df[f'{pref}-CDL3STARSINSOUTH'] = ta.CDL3STARSINSOUTH(df)
+        # df[f'{pref}-CDLABANDONEDBABY'] = ta.CDLABANDONEDBABY(df)
+        # df[f'{pref}-CDLADVANCEBLOCK'] = ta.CDLADVANCEBLOCK(df)
+        # df[f'{pref}-CDLBELTHOLD'] = ta.CDLBELTHOLD(df)
+        # df[f'{pref}-CDLCLOSINGMARUBOZU'] = ta.CDLCLOSINGMARUBOZU(df)
+        # df[f'{pref}-CDLCOUNTERATTACK'] = ta.CDLCOUNTERATTACK(df)
+        # df[f'{pref}-CDLDOJI'] = ta.CDLDOJI(df)
+        # df[f'{pref}-CDLGAPSIDESIDEWHITE'] = ta.CDLGAPSIDESIDEWHITE(df)
+        # df[f'{pref}-CDLHARAMICROSS'] = ta.CDLHARAMICROSS(df)
+        # df[f'{pref}-CDLHIKKAKE'] = ta.CDLHIKKAKE(df)
+        # df[f'{pref}-CDLHOMINGPIGEON'] = ta.CDLHOMINGPIGEON(df)
+        # df[f'{pref}-CDLINNECK'] = ta.CDLINNECK(df)
+        # df[f'{pref}-CDLKICKING'] = ta.CDLKICKING(df)
+        # df[f'{pref}-CDLKICKINGBYLENGTH'] = ta.CDLKICKINGBYLENGTH(df)
+        # df[f'{pref}-CDLLONGLEGGEDDOJI'] = ta.CDLLONGLEGGEDDOJI(df)
+        # df[f'{pref}-CDLLONGLINE'] = ta.CDLLONGLINE(df)
+        # df[f'{pref}-CDLMARUBOZU'] = ta.CDLMARUBOZU(df)
+        # df[f'{pref}-CDLMATCHINGLOW'] = ta.CDLMATCHINGLOW(df)
+        # df[f'{pref}-CDLMATHOLD'] = ta.CDLMATHOLD(df)
+        # df[f'{pref}-CDLMORNINGDOJISTAR'] = ta.CDLMORNINGDOJISTAR(df)
+        # df[f'{pref}-CDLONNECK'] = ta.CDLONNECK(df)
+        # df[f'{pref}-CDLRICKSHAWMAN'] = ta.CDLRICKSHAWMAN(df)
+        # df[f'{pref}-CDLRISEFALL3METHODS'] = ta.CDLRISEFALL3METHODS(df)
+        # df[f'{pref}-CDLSEPARATINGLINES'] = ta.CDLSEPARATINGLINES(df)
+        # df[f'{pref}-CDLSHORTLINE'] = ta.CDLSHORTLINE(df)
+        # df[f'{pref}-CDLSTALLEDPATTERN'] = ta.CDLSTALLEDPATTERN(df)
+        # df[f'{pref}-CDLSTICKSANDWICH'] = ta.CDLSTICKSANDWICH(df)
+        # df[f'{pref}-CDLTAKURI'] = ta.CDLTAKURI(df)
+        # df[f'{pref}-CDLTASUKIGAP'] = ta.CDLTASUKIGAP(df)
+        # df[f'{pref}-CDLTHRUSTING'] = ta.CDLTHRUSTING(df)
+        # df[f'{pref}-CDLTRISTAR'] = ta.CDLTRISTAR(df)
+        # df[f'{pref}-CDLUPSIDEGAP2CROWS'] = ta.CDLUPSIDEGAP2CROWS(df)
+        # df[f'{pref}-CDLXSIDEGAP3METHODS'] = ta.CDLXSIDEGAP3METHODS(df)
+
+        self.log(f"EXIT .feature_engineering_candle_patterns() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
+
+        return df.copy()
+
+    def feature_engineering_alphas101(self, df:DataFrame, metadata, **kwargs):
+        self.log(f"ENTER .feature_engineering_alphas101(): {metadata} {df.shape}")
+        start_time = time.time()
+
+        df = get_alpha(df, n_jobs=self.data_kitchen_thread_count)
+
+        self.log(f"EXIT .feature_engineering_alphas101() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
         return df
 
 
@@ -323,7 +352,7 @@ class TM3BinaryClass(IStrategy):
         df = candle_stats(df)
 
         # add Alpha101
-        # df = self.feature_engineering_alphas101(df, metadata, **kwargs)
+        df = self.feature_engineering_alphas101(df, metadata, **kwargs)
 
         # add TA features to dataframe
 
@@ -392,7 +421,7 @@ class TM3BinaryClass(IStrategy):
         df = self.feature_engineering_trend(df, metadata, **kwargs).copy()
 
         # add chart pattern features
-        # df = self.feature_engineering_candle_patterns(df, metadata, **kwargs).copy()
+        df = self.feature_engineering_candle_patterns(df, metadata, **kwargs).copy()
 
         self.log(f"EXIT .feature_engineering_expand_basic() {metadata} {df.shape}, execution time: {time.time() - start_time:.2f} seconds")
 
@@ -403,7 +432,15 @@ class TM3BinaryClass(IStrategy):
         start_time = time.time()
 
         # add lag
-        df = helpers.create_lag(df, 6)
+        df = helpers.create_lag(df, 6, ignore_columns=[
+            'hlc3', 'hlc3_log',
+            'hl2', 'hl2_log',
+            'ohlc4', 'ohlc4_log',
+            'open', 'open_log',
+            'high', 'high_log',
+            'low', 'low_log',
+            'close', 'close_log',
+        ])
 
         # some basic features
         df["%-pct-change"] = df["close"].pct_change()
@@ -430,7 +467,6 @@ class TM3BinaryClass(IStrategy):
         start_time = time.time()
 
         df = candle_stats(df)
-
 
         # target: trend slope
         df.set_index(df['date'], inplace=True)
@@ -530,6 +566,9 @@ class TM3BinaryClass(IStrategy):
 
         # add slope indicators
         df = self.add_slope_indicator(df, 'ohlc4_log', self.PREDICT_TARGET)
+        df = self.add_slope_indicator(df, 'ohlc4_log', 12)
+        df = self.add_slope_indicator(df, 'ohlc4_log', 25)
+        df = self.add_slope_indicator(df, 'ohlc4_log', 50)
 
         df['L1'] = 1.0
         df['L0'] = 0
@@ -562,7 +601,8 @@ class TM3BinaryClass(IStrategy):
         self.log(f"{metadata['pair']}: extrema_minima_f1={last_candle['&-extrema_minima_f1']:.2f}")
         self.log(f"{metadata['pair']}: extrema_minima_logloss={last_candle['&-extrema_minima_logloss']:.2f}")
         self.log(f"{metadata['pair']}: extrema_minima_accuracy={last_candle['&-extrema_minima_accuracy']:.2f}")
-
+        self.log(f"{metadata['pair']}: DI_value_param1={last_candle['DI_value_param1']:.2f}")
+        self.log(f"{metadata['pair']}: DI_cutoff={last_candle['DI_cutoff']:.2f}")
 
         df['atr'] = talib.ATR(df['high'], df['low'], df['close'], timeperiod=100)
 
@@ -605,68 +645,149 @@ class TM3BinaryClass(IStrategy):
         return (df["DI_values"] < df["DI_cutoff"])
 
 
+    # def signal_good_long(self, df: DataFrame):
+    #     return (
+    #         (df['minima'] >= 0.5) &
+    #         (df['trend_long'] >= 0.8) &
+    #         (df['maxima'] <= 0.3) &
+    #         (df['trend_short'] <= 0.2)
+    #     )
+
+    # def signal_super_long(self, df: DataFrame):
+    #     return (
+    #         (df['minima'] >= 0.8) &
+    #         (df['trend_long'] >= 0.8) &
+    #         (df['maxima'] <= 0.5) &
+    #         (df['trend_short'] <= 0.2)
+    #     )
+
+    # def signal_minima_pullback(self, df: DataFrame):
+    #     return (
+    #         (df['minima'] >= 0.9) &
+    #         (df['trend_long'] >= 0.2) &
+    #         (df['maxima'] <= 0.4) &
+    #         (df['trend_short'] <= 0.2)
+    #     )
+
+    def signal_scalp_long(self, df: DataFrame):
+        return (
+            (df['minima'] >= 0.5) &
+            (df['trend_long'] >= 0.6) &
+            (df['maxima'] <= 0.2) &
+            (df['trend_short'] <= 0.1)
+        )
+
+    # def signal_maxima_pullback(self, df: DataFrame):
+    #     return (
+    #         (df['maxima'] >= 0.7) &
+    #         (df['trend_short'] >= 0.6) &
+    #         (df['minima'] <= 0.3) &
+    #         (df['trend_long'] <= 0.2)
+    #     )
+
+    # def signal_strong_short(self, df: DataFrame):
+    #     return (
+    #         (df['maxima'] >= 0.4) &
+    #         (df['trend_short'] >= 0.8) &
+    #         (df['minima'] <= 0.3) &
+    #         (df['trend_long'] <= 0.2)
+    #     )
+
+    def signal_scalp_short(self, df: DataFrame):
+        return (
+            (df['maxima'] >= 0.7) &
+            (df['trend_short'] >= 0.7) &
+            (df['minima'] <= 0.5) &
+            (df['trend_long'] <= 0.2)
+        )
+
+
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
+        ## LONG signals
 
-        # LONG signals
-        df.loc[(
-            (df['minima'] >= 0.8) & (df['maxima'] < 0.5) & (df['trend_short'] < 0.5)
-        ), ['enter_long', 'enter_tag']] = (1, 'kinda_minima')
+        # super long
+        # df.loc[(
+        #     self.signal_super_long(df)
+        # ), ['enter_long', 'enter_tag']] = (1, 'super_long')
 
-        df.loc[(
-            (df['trend_long'] >= 0.9) & (df['maxima'] < 0.5) & (df['trend_short'] < 0.5)
-        ), ['enter_long', 'enter_tag']] = (1, 'strong_trend_long')
+        # # good long
+        # df.loc[(
+        #     self.signal_good_long(df)
+        # ), ['enter_long', 'enter_tag']] = (1, 'good_long')
 
-        df.loc[(
-            (df['minima'] >= 0.9) & (df['maxima'] < 0.6) & (df['trend_short'] < 0.7)
-        ), ['enter_long', 'enter_tag']] = (1, 'strong_minima')
+        # # minima pullback
+        # df.loc[(
+        #     self.signal_minima_pullback(df)
+        # ), ['enter_long', 'enter_tag']] = (1, 'minima_pullback')
 
-        # SHORT signals
+        # scalp long
         df.loc[(
-            (df['maxima'] >= 0.8) & (df['minima'] < 0.5) & (df['trend_long'] < 0.5)
-        ),['enter_short', 'enter_tag']] = (1, 'kinda_maxima')
+            self.signal_scalp_long(df)
+        ), ['enter_long', 'enter_tag']] = (1, 'scalp_long')
 
-        df.loc[(
-            (df['maxima'] >= 0.9) & (df['minima'] < 0.6) & (df['trend_long'] < 0.7)
-        ),['enter_short', 'enter_tag']] = (1, 'strong_maxima')
+        ## SHORT signals
 
+        # maxima pullback
+        # df.loc[(
+        #     self.signal_maxima_pullback(df)
+        # ), ['enter_short', 'enter_tag']] = (1, 'maxima_pullback')
+
+        # # strong short
+        # df.loc[(
+        #     self.signal_strong_short(df)
+        # ), ['enter_short', 'enter_tag']] = (1, 'strong_short')
+
+        # scalp short
         df.loc[(
-            (df['trend_short'] >= 0.9) & (df['minima'] < 0.5) & (df['trend_long'] < 0.5)
-        ),['enter_short', 'enter_tag']] = (1, 'strong_trend_short')
+            self.signal_scalp_short(df)
+        ), ['enter_short', 'enter_tag']] = (1, 'scalp_short')
+
 
         return df
 
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
-
         # LONGS
         df.loc[(
-            (df['maxima'] > 0.9) & (df['trend_short'] < 0.5)
-        ), ['exit_long', 'exit_tag']] = (1, 'strong_maxima')
-        df.loc[(
-            (df['trend_short'] > 0.8) & (df['trend_long'] < 0.6)
-        ), ['exit_long', 'exit_tag']] = (1, 'strong_short_trend')
+            self.signal_scalp_short(df)
+        ), ['exit_long', 'exit_tag']] = (1, 'exit_scap_short')
+
+        # df.loc[(
+        #     self.signal_maxima_pullback(df)
+        # ), ['exit_long', 'exit_tag']] = (1, 'exit_maxima_pullback')
 
         # SHORTS
         df.loc[(
-            (df['minima'] > 0.9) & (df['trend_long'] < 0.5)
-        ), ['exit_short', 'exit_tag']] = (1, 'strong_minima')
+            self.signal_scalp_long(df)
+        ), ['exit_short', 'exit_tag']] = (1, 'exit_good_long')
 
-        df.loc[(
-            (df['trend_long'] > 0.8) & (df['trend_short'] < 0.6)
-        ), ['exit_short', 'exit_tag']] = (1, 'strong_long_trend')
+        # df.loc[(
+        #     self.signal_super_long(df)
+        # ), ['exit_short', 'exit_tag']] = (1, 'exit_super_long')
+
+        # df.loc[(
+        #     self.signal_minima_pullback(df)
+        # ), ['exit_short', 'exit_tag']] = (1, 'exit_minima_pullback')
 
         return df
-
 
     def custom_stoploss(self, pair: str, trade: 'Trade', current_time: datetime,
                         current_rate: float, current_profit: float, after_fill: bool,
                         **kwargs) -> Optional[float]:
-        dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
-        trade_date = timeframe_to_prev_date(self.timeframe, trade.open_date_utc)
-        candle = dataframe.iloc[-1].squeeze()
-        side = 1 if trade.is_short else -1
-        return stoploss_from_absolute(current_rate + (side * candle['atr'] * 2),
-                                      current_rate, is_short=trade.is_short,
-                                      leverage=trade.leverage)
+
+        # breakeven after 1%
+        profit_dist = current_profit / trade.leverage
+        if profit_dist > 0.01:
+            return stoploss_from_open(0.001, current_profit, is_short=trade.is_short, leverage=trade.leverage)
+
+        # # stoploss 1% for scalp_long trade
+        # if trade.enter_tag == "scalp_long":
+        #     return stoploss_from_open(-0.01, current_profit, is_short=trade.is_short, leverage=trade.leverage)
+
+        # if trade.enter_tag == "scalp_short":
+        #     return stoploss_from_open(-0.01, current_profit, is_short=trade.is_short, leverage=trade.leverage)
+
+        # otherwise use 3%
+        return stoploss_from_open(-0.03, current_profit, is_short=trade.is_short, leverage=trade.leverage)
 
 
     def custom_exit(self, pair: str, trade: Trade, current_time: datetime, current_rate: float,
@@ -679,26 +800,38 @@ class TM3BinaryClass(IStrategy):
 
         last_candle = df.iloc[-1].squeeze()
 
+        # de-leverage profit
+        current_profit = current_profit / trade.leverage
+
         trade_duration = (current_time - trade.open_date_utc).seconds / 60
         is_short = trade.is_short == True
         is_long = trade.is_short == False
         is_profitable = current_profit > 0
 
+        # 1. Check ROI
         roi_result = self.check_roi(pair, current_time, trade.open_date_utc, current_profit)
         if roi_result:
             return roi_result
 
-        if trade.is_open and is_long and last_candle['maxima'] >= 0.6 and is_profitable:
+        # 2. Check trend & extrema
+        if is_long and last_candle['maxima'] >= 0.7 and is_profitable:
             return "almost_maxima"
 
-        if trade.is_open and is_long and last_candle['trend_short'] >= 0.7 and is_profitable:
-            return "trend_reserse_to_short"
+        if is_long and last_candle['trend_short'] >= 0.7 and is_profitable:
+            return "trend_reverse_to_short"
 
-        if trade.is_open and is_short and last_candle['minima'] >= 0.6 and is_profitable:
+        if is_short and last_candle['minima'] >= 0.7 and is_profitable:
             return "almost_minima"
 
-        if trade.is_open and is_short and last_candle['trend_long'] >= 0.7 and is_profitable:
+        if is_short and last_candle['trend_long'] >= 0.7 and is_profitable:
             return "trend_reserse_to_long"
+
+        # 3. custom exit per enter_tag
+        if trade.enter_tag == "scalp_long" and current_profit >= 0.03:
+            return "scalp_long_tp"
+
+        if trade.enter_tag == "scalp_short" and current_profit >= 0.03:
+            return "scalp_long_tp"
 
 
     ####
@@ -706,6 +839,11 @@ class TM3BinaryClass(IStrategy):
     cached_roi_tables = {}
 
     def get_or_create_roi_table(self, pair, kernel=6):
+
+        # Reset cache if new day
+        if datetime.now().hour == 0:
+            self.cached_roi_tables = {}
+
         # Check cache first
         if pair in self.cached_roi_tables:
             return self.cached_roi_tables[pair]
@@ -756,10 +894,10 @@ class TM3BinaryClass(IStrategy):
         # Creating dynamic ROI table using calculated statistics
         minutes = timeframe_to_minutes(self.timeframe)
         dynamic_roi = {
-            "0": distances_description['75%'],
+            "0": distances_description['75%'], # trying to catch top 75% profit
             # str(int(candles_between_peaks_description['25%'] * minutes)): distances_description['50%'],
             # str(int(candles_between_peaks_description['50%'] * minutes)): distances_description['25%'],
-            str(int(candles_between_peaks_description['75%'] * minutes)): 0.00  # Using 75th percentile for the last tier
+            str(int(candles_between_peaks_description['75%'] * minutes)): 0.00  # closing the rest 25% which has lower profit
         }
 
         # Cache the ROI table

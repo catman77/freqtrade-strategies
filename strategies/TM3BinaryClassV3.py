@@ -147,7 +147,7 @@ class TM3BinaryClassV3(IStrategy):
         logger.info(msg, *args, **kwargs)
 
     minimal_roi = {
-        "0": 0.04 # Target: RR 1:1
+        "0": 0.06 # Target: RR 2:1
     }
 
     TARGET_VAR = "ohlc4_log"
@@ -156,9 +156,9 @@ class TM3BinaryClassV3(IStrategy):
     use_exit_signal = True
     can_short = True
     ignore_roi_if_entry_signal = True
-    use_custom_stoploss = False
+    use_custom_stoploss = True
 
-    stoploss = -0.04
+    stoploss = -0.03
     trailing_stop = False
     trailing_only_offset_is_reached  = False
     trailing_stop_positive_offset = 0
@@ -655,60 +655,60 @@ class TM3BinaryClassV3(IStrategy):
         return (df["DI_values"] < df["DI_cutoff"])
 
 
-    def signal_good_long(self, df: DataFrame):
+    # def signal_good_long(self, df: DataFrame):
+    #     return (
+    #         (df['minima'] >= 0.5) &
+    #         (df['trend_long'] >= 0.8) &
+    #         (df['maxima'] <= 0.3) &
+    #         (df['trend_short'] <= 0.2)
+    #     )
+
+    # def signal_super_long(self, df: DataFrame):
+    #     return (
+    #         (df['minima'] >= 0.8) &
+    #         (df['trend_long'] >= 0.8) &
+    #         (df['maxima'] <= 0.5) &
+    #         (df['trend_short'] <= 0.2)
+    #     )
+
+    # def signal_minima_pullback(self, df: DataFrame):
+    #     return (
+    #         (df['minima'] >= 0.9) &
+    #         (df['trend_long'] >= 0.2) &
+    #         (df['maxima'] <= 0.4) &
+    #         (df['trend_short'] <= 0.2)
+    #     )
+
+    def signal_scalp_long(self, df: DataFrame):
         return (
             (df['minima'] >= 0.5) &
-            (df['trend_long'] >= 0.8) &
-            (df['maxima'] <= 0.3) &
-            (df['trend_short'] <= 0.2)
-        )
-
-    def signal_super_long(self, df: DataFrame):
-        return (
-            (df['minima'] >= 0.8) &
-            (df['trend_long'] >= 0.8) &
-            (df['maxima'] <= 0.5) &
-            (df['trend_short'] <= 0.3)
-        )
-
-    def signal_minima_pullback(self, df: DataFrame):
-        return (
-            (df['minima'] >= 0.9) &
             (df['trend_long'] >= 0.6) &
-            (df['maxima'] <= 0.4) &
-            (df['trend_short'] <= 0.4)
+            (df['maxima'] <= 0.2) &
+            (df['trend_short'] <= 0.1)
         )
 
-    def signal_combo_long(self, df: DataFrame):
-        return (
-            (df['minima'] >= 0.7) &
-            (df['trend_long'] >= 0.7) &
-            (df['maxima'] <= 0.3) &
-            (df['trend_short'] <= 0.3)
-        )
+    # def signal_maxima_pullback(self, df: DataFrame):
+    #     return (
+    #         (df['maxima'] >= 0.7) &
+    #         (df['trend_short'] >= 0.6) &
+    #         (df['minima'] <= 0.3) &
+    #         (df['trend_long'] <= 0.2)
+    #     )
 
-    def scalp_long(self, df: DataFrame):
-        return (
-            (df['minima'] >= 0.2) &
-            (df['trend_long'] >= 0.7) &
-            (df['maxima'] <= 0.3) &
-            (df['trend_short'] <= 0.3)
-        )
+    # def signal_strong_short(self, df: DataFrame):
+    #     return (
+    #         (df['maxima'] >= 0.4) &
+    #         (df['trend_short'] >= 0.8) &
+    #         (df['minima'] <= 0.3) &
+    #         (df['trend_long'] <= 0.2)
+    #     )
 
-    def signal_maxima_pullback(self, df: DataFrame):
+    def signal_scalp_short(self, df: DataFrame):
         return (
             (df['maxima'] >= 0.7) &
-            (df['trend_short'] >= 0.2) &
-            (df['minima'] <= 0.3) &
-            (df['trend_short'] <= 0.2)
-        )
-
-    def signal_strong_short(self, df: DataFrame):
-        return (
-            (df['maxima'] >= 0.4) &
-            (df['trend_short'] >= 0.8) &
+            (df['trend_short'] >= 0.7) &
             (df['minima'] <= 0.5) &
-            (df['trend_long'] <= 0.15)
+            (df['trend_long'] <= 0.2)
         )
 
 
@@ -716,41 +716,41 @@ class TM3BinaryClassV3(IStrategy):
         ## LONG signals
 
         # super long
-        df.loc[(
-            self.signal_super_long(df)
-        ), ['enter_long', 'enter_tag']] = (1, 'super_long')
+        # df.loc[(
+        #     self.signal_super_long(df)
+        # ), ['enter_long', 'enter_tag']] = (1, 'super_long')
 
-        # good long
-        df.loc[(
-            self.signal_good_long(df)
-        ), ['enter_long', 'enter_tag']] = (1, 'good_long')
+        # # good long
+        # df.loc[(
+        #     self.signal_good_long(df)
+        # ), ['enter_long', 'enter_tag']] = (1, 'good_long')
 
-        # minima pullback
-        df.loc[(
-            self.signal_minima_pullback(df)
-        ), ['enter_long', 'enter_tag']] = (1, 'minima_pullback')
-
-        # combo long
-        df.loc[(
-            self.signal_combo_long(df)
-        ), ['enter_long', 'enter_tag']] = (1, 'combo_long')
+        # # minima pullback
+        # df.loc[(
+        #     self.signal_minima_pullback(df)
+        # ), ['enter_long', 'enter_tag']] = (1, 'minima_pullback')
 
         # scalp long
         df.loc[(
-            self.scalp_long(df)
+            self.signal_scalp_long(df)
         ), ['enter_long', 'enter_tag']] = (1, 'scalp_long')
 
         ## SHORT signals
 
         # maxima pullback
-        df.loc[(
-            self.signal_maxima_pullback(df)
-        ), ['enter_short', 'enter_tag']] = (1, 'maxima_pullback')
+        # df.loc[(
+        #     self.signal_maxima_pullback(df)
+        # ), ['enter_short', 'enter_tag']] = (1, 'maxima_pullback')
 
-        # strong short
+        # # strong short
+        # df.loc[(
+        #     self.signal_strong_short(df)
+        # ), ['enter_short', 'enter_tag']] = (1, 'strong_short')
+
+        # scalp short
         df.loc[(
-            self.signal_strong_short(df)
-        ), ['enter_short', 'enter_tag']] = (1, 'strong_short')
+            self.signal_scalp_short(df)
+        ), ['enter_short', 'enter_tag']] = (1, 'scalp_short')
 
 
         return df
@@ -758,25 +758,25 @@ class TM3BinaryClassV3(IStrategy):
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
         # LONGS
         df.loc[(
-            self.signal_strong_short(df)
-        ), ['exit_long', 'exit_tag']] = (1, 'exit_strong_short')
+            self.signal_scalp_short(df)
+        ), ['exit_long', 'exit_tag']] = (1, 'exit_scap_short')
 
-        df.loc[(
-            self.signal_maxima_pullback(df)
-        ), ['exit_long', 'exit_tag']] = (1, 'exit_maxima_pullback')
+        # df.loc[(
+        #     self.signal_maxima_pullback(df)
+        # ), ['exit_long', 'exit_tag']] = (1, 'exit_maxima_pullback')
 
         # SHORTS
         df.loc[(
-            self.signal_good_long(df)
+            self.signal_scalp_long(df)
         ), ['exit_short', 'exit_tag']] = (1, 'exit_good_long')
 
-        df.loc[(
-            self.signal_super_long(df)
-        ), ['exit_short', 'exit_tag']] = (1, 'exit_super_long')
+        # df.loc[(
+        #     self.signal_super_long(df)
+        # ), ['exit_short', 'exit_tag']] = (1, 'exit_super_long')
 
-        df.loc[(
-            self.signal_minima_pullback(df)
-        ), ['exit_short', 'exit_tag']] = (1, 'exit_minima_pullback')
+        # df.loc[(
+        #     self.signal_minima_pullback(df)
+        # ), ['exit_short', 'exit_tag']] = (1, 'exit_minima_pullback')
 
         return df
 
@@ -784,11 +784,20 @@ class TM3BinaryClassV3(IStrategy):
                         current_rate: float, current_profit: float, after_fill: bool,
                         **kwargs) -> Optional[float]:
 
-        # once the profit has risen above 2%, keep the stoploss at breakeven
-        if current_profit >= 0.02:
+        # breakeven after 1%
+        profit_dist = current_profit / trade.leverage
+        if profit_dist > 0.01:
             return stoploss_from_open(0.001, current_profit, is_short=trade.is_short, leverage=trade.leverage)
 
-        return 1
+        # # stoploss 1% for scalp_long trade
+        # if trade.enter_tag == "scalp_long":
+        #     return stoploss_from_open(-0.01, current_profit, is_short=trade.is_short, leverage=trade.leverage)
+
+        # if trade.enter_tag == "scalp_short":
+        #     return stoploss_from_open(-0.01, current_profit, is_short=trade.is_short, leverage=trade.leverage)
+
+        # otherwise use 3%
+        return stoploss_from_open(-0.03, current_profit, is_short=trade.is_short, leverage=trade.leverage)
 
 
     def custom_exit(self, pair: str, trade: Trade, current_time: datetime, current_rate: float,
@@ -800,6 +809,9 @@ class TM3BinaryClassV3(IStrategy):
             return None  # Or other appropriate handling
 
         last_candle = df.iloc[-1].squeeze()
+
+        # de-leverage profit
+        current_profit = current_profit / trade.leverage
 
         trade_duration = (current_time - trade.open_date_utc).seconds / 60
         is_short = trade.is_short == True
@@ -825,11 +837,11 @@ class TM3BinaryClassV3(IStrategy):
             return "trend_reserse_to_long"
 
         # 3. custom exit per enter_tag
-        if trade.enter_tag == "scalp_long" and current_profit >= 0.015:
-            return "scalp_long_target_reached"
+        if trade.enter_tag == "scalp_long" and current_profit >= 0.03:
+            return "scalp_long_tp"
 
-        if is_short and current_profit >= 0.03:
-            return "short_target_reached"
+        if trade.enter_tag == "scalp_short" and current_profit >= 0.03:
+            return "scalp_long_tp"
 
 
     ####
