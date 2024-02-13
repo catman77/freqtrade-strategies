@@ -1,0 +1,192 @@
+{
+    "trading_mode": "futures",
+    "new_pairs_days": 30,
+    "margin_mode": "isolated",
+    "max_open_trades": 5,
+    "stake_currency": "USDT",
+    "stake_amount": "unlimited",
+    "tradable_balance_ratio": 1,
+    "fiat_display_currency": "USD",
+    "dry_run": true,
+    "timeframe": "5m",
+    "dataformat_ohlcv": "json",
+    "dry_run_wallet": 5000,
+    "cancel_open_orders_on_exit": true,
+    "order_types": {
+        "entry": "market",
+        "exit": "market",
+        "emergency_exit": "market",
+        "stoploss": "market",
+        "force_exit": "market",
+        "stoploss_on_exchange": false
+    },
+    "unfilledtimeout": {
+        "entry": 1,
+        "exit": 1
+    },
+    "exchange": {
+        "name": "binance",
+        "key": "",
+        "secret": "",
+        "ccxt_config": {
+            "enableRateLimit": true,
+            "rateLimit": 50
+        },
+        "ccxt_async_config": {
+            "enableRateLimit": true,
+            "rateLimit": 50
+        },
+        "pair_whitelist": [
+            "BTC/USDT:USDT",
+            "ETH/USDT:USDT",
+            "ADA/USDT:USDT",
+            "DOGE/USDT:USDT",
+            "LINK/USDT:USDT"
+        ],
+        "pair_blacklist": []
+    },
+
+    "sagemaster": {
+        "PREDICT_STORAGE_ENABLED": true,
+        "PREDICT_STORAGE_CONN_STRING": "mssql+pyodbc://mastergpt:gptMas12!@mastergpt.database.windows.net/mastergpt?driver=ODBC+Driver+18+for+SQL+Server"
+    },
+
+    "entry_pricing": {
+        "price_side": "other",
+        "use_order_book": true,
+        "order_book_top": 1,
+        "price_last_balance": 0.0,
+        "check_depth_of_market": {
+            "enabled": false,
+            "bids_to_ask_delta": 1
+        }
+    },
+    "exit_pricing": {
+        "price_side": "other",
+        "use_order_book": true,
+        "order_book_top": 1
+    },
+    "pairlists": [
+        {
+            "method": "StaticPairList"
+        }
+    ],
+    "bot_name": "adaptive_test",
+    "force_entry_enable": true,
+    "initial_state": "running",
+    "internals": {
+        "process_throttle_secs": 5
+    },
+    "freqai": {
+        "enabled": true,
+        "conv_width": 1,
+        "purge_old_models": 5,
+        "expiration_hours": 24,
+        "live_retrain_hours": 6,
+        "train_period_days": 60,
+        "backtest_period_days": 1,
+        "write_metrics_to_disk": true,
+        "identifier": "quickadapterv45",
+        "fit_live_predictions_candles": 150,
+        "data_kitchen_thread_count": 6,
+        "track_performance": false,
+        "weibull_outlier_threshold": 0.999,
+        "extra_returns_per_train": {
+            "DI_value_param1": 0,
+            "DI_value_param2": 0,
+            "DI_value_param3": 0,
+            "DI_cutoff": 2,
+            "&s-minima_sort_threshold": -2,
+            "&s-maxima_sort_threshold": 2
+        },
+        "feature_parameters": {
+            "include_corr_pairlist": [
+                "BTC/USDT:USDT",
+                "ETH/USDT:USDT"
+            ],
+            "include_timeframes": [
+                "5m",
+                "15m",
+                "1h",
+                "4h"
+            ],
+            "label_period_candles": 50,
+            "include_shifted_candles": 15,
+            "DI_threshold": 20,
+            "weight_factor": 0.3,
+            "indicator_periods_candles": [
+                6,
+                12,
+                24,
+                48
+            ],
+            "noise_standard_deviation": 0.01,
+            "plot_feature_importances": 50,
+            "buffer_train_data_candles": 50,
+            "balance_weights": false,
+            "include_santiment_data": false
+        },
+        "data_split_parameters": {
+            "test_size": 0.05,
+            "random_state": 1,
+            "shuffle": false
+        },
+        "model_training_parameters": {
+            "n_estimators": 400,
+            "device": "cpu",
+            "tree_method": "hist",
+            "n_jobs": 16,
+            "verbosity": 1,
+            "alpha": 0.5,
+            "min_child_weight": 5,
+            "learning_rate": 0.1,
+            "max_depth": 6,
+            "early_stopping_rounds": 20
+        }
+    },
+    "api_server": {
+        "enabled": true,
+        "listen_ip_address": "0.0.0.0",
+        "listen_port": 8080,
+        "verbosity": "error",
+        "enable_openapi": false,
+        "jwt_secret_key": "HAHAHAHA",
+        "CORS_origins": [
+            "http://localhost:8080",
+            "http://localhost:8082"
+        ],
+        "username": "master",
+        "password": "123456"
+    },
+    "telegram": {
+        "enabled": false,
+        "token": "6003552464:AAHVHcUwAxo3Yy-OAIHLi4LayPzhsWTPa60",
+        "chat_id": "47319110",
+        "allow_custom_messages": true,
+        "notification_settings": {
+            "status": "silent",
+            "warning": "on",
+            "startup": "silent",
+            "entry": "silent",
+            "exit": {
+                "roi": "silent",
+                "emergency_exit": "on",
+                "force_exit": "on",
+                "exit_signal": "silent",
+                "trailing_stop_loss": "on",
+                "stop_loss": "on",
+                "stoploss_on_exchange": "on",
+                "custom_exit": "silent",
+                "partial_exit": "on"
+            },
+            "entry_cancel": "silent",
+            "exit_cancel": "on",
+            "entry_fill": "off",
+            "exit_fill": "off",
+            "protection_trigger": "on",
+            "protection_trigger_global": "on",
+            "strategy_msg": "silent",
+            "show_candle": "ohlc"
+        }
+    }
+}

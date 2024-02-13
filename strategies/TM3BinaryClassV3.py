@@ -186,7 +186,7 @@ class TM3BinaryClassV3(IStrategy):
 
     @property
     def PREDICT_STORAGE_ENABLED(self):
-        return self.config["sagemaster"].get("PREDICT_STORAGE_ENABLED")
+        return self.config["sagemaster"].get("PREDICT_STORAGE_ENABLED", False)
 
     @property
     def PREDICT_STORAGE_CONN_STRING(self):

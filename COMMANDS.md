@@ -101,3 +101,17 @@ freqtrade download-data --timerange "20231101-" -t 1h 4h 12h 1d -p ADA/USDT:USDT
 freqtrade  download-data --exchange binance --pairs BTC/USDT:USDT ADA/USDT:USDT --trading-mode futures --timerange 20230101- -t 1h 4h 6h 12h 1d
 
 freqtrade  download-data --exchange binance  --trading-mode futures --timerange 20220601- -t 1h 4h 6h 12h 1d --config user_data/configs/TM3BinaryClass.producer.json
+
+
+
+
+QAV45
+```sh
+freqtrade trade \
+	--config user_data/configs/xgboostQV45.dev.json \
+	--freqaimodel XGBoostRegressorMultiTargetQuickAdapterV45 \
+	--strategy TM5QuickAdapterV4 \
+	--logfile user_data/logs/QuickAdapterV4.dev.log \
+	--db-url sqlite:///user_data/db/QuickAdapterV4.dev.sqlite
+
+```

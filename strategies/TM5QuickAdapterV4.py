@@ -16,6 +16,8 @@ import numpy as np
 import pandas_ta as pta
 import math
 
+from lib.tm5_prediction_storage import TM5PredictionStorage
+
 logger = logging.getLogger(__name__)
 
 """
@@ -35,7 +37,7 @@ https://github.com/sponsors/robcaulk
 """
 
 
-class QuickAdapterV4(IStrategy):
+class TM5QuickAdapterV4(IStrategy):
 
     position_adjustment_enable = False
 
@@ -117,6 +119,10 @@ class QuickAdapterV4(IStrategy):
     }
 
     @property
+    def PREDICT_STORAGE_ENABLED(self):
+        return self.config["sagemaster"].get("PREDICT_STORAGE_ENABLED", False)
+
+    @property
     def protections(self):
         return [
             {"method": "CooldownPeriod", "stop_duration_candles": 4},
@@ -137,6 +143,13 @@ class QuickAdapterV4(IStrategy):
     trailing_stop_positive = 0.005
     trailing_stop_positive_offset = 0.01
     trailing_only_offset_is_reached = True
+
+    def bot_start(self, **kwargs) -> None:
+        print("bot_start")
+
+        if (self.PREDICT_STORAGE_ENABLED):
+            self.ps = TM5PredictionStorage(connection_string=self.config["sagemaster"].get("PREDICT_STORAGE_CONN_STRING"))
+
 
     def feature_engineering_expand_all(self, dataframe, period, **kwargs):
         dataframe["%-rsi-period"] = ta.RSI(dataframe, timeperiod=period)
@@ -281,15 +294,25 @@ class QuickAdapterV4(IStrategy):
             dataframe["DI_values"] > dataframe["DI_cutoff"], 0, 1,
         )
 
-        dataframe['plot_rmax'] = round(dataframe['&-s_max'] * 100, 2)
-        dataframe['plot_rmin'] = round(dataframe['&-s_min'] * 100, 2)
-        dataframe["plot_extrema"] = round(dataframe["&s-extrema"] * 100, 2)
-        dataframe["plot_minima_sort_th"] = round(dataframe["&s-minima_sort_threshold"] * 100, 2)
-        dataframe["plot_maxima_sort_th"] = round(dataframe["&s-maxima_sort_threshold"] * 100, 2)
-
-
         dataframe["minima_sort_threshold"] = dataframe["&s-minima_sort_threshold"]
         dataframe["maxima_sort_threshold"] = dataframe["&s-maxima_sort_threshold"]
+
+        # save prediction
+        last_candle = dataframe.iloc[-1].squeeze()
+        if (self.PREDICT_STORAGE_ENABLED and self.ps and (last_candle['do_predict'] == 1)):
+            self.ps.add_prediction(
+                model_version=self.freqai.identifier,
+                pair=metadata['pair'],
+                timeframe=self.timeframe,
+                extrema=last_candle['&s-extrema'],
+                minima_sort_threshold=last_candle['minima_sort_threshold'],
+                maxima_sort_threshold=last_candle['maxima_sort_threshold'],
+                range_max=last_candle['&-s_max'],
+                range_min=last_candle['&-s_min'],
+                di_values=last_candle['DI_values'],
+                di_cutoff=last_candle['DI_cutoff'],
+                candle_time=last_candle['date']
+            )
 
         return dataframe
 

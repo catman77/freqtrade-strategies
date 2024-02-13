@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 # Optuna
-N_TRIALS = 25
+N_TRIALS = 10
 
 """
 The following freqaimodel is released to sponsors of the non-profit FreqAI open-source project.
